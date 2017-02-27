@@ -4,9 +4,10 @@ library(truncnorm)
 library(TruncatedNormal)
 library(lpSolve)
 
+set.seed(47)
 #Make the underlying data
-dat_alph <- 3
-dat_bet <-7
+dat_alph <- 7
+dat_bet <-3
 x_dat <- rbeta(10000,dat_alph,dat_bet)
 
 #Make the histogram data
@@ -21,7 +22,7 @@ my_hist <- function(dat,bounds){
 
 t_star = 1
 
-bin_size = 0.1
+#bin_size = 0.1
 (alpha <- seq(0,t_star, length = 50))
 alpha[2:(length(alpha)-1)] <- alpha[2:(length(alpha)-1)] + 
   rnorm(length(alpha)-2,0,1E-3)
@@ -62,11 +63,10 @@ r = 0.5
 #phat <- (phat <- y/sum(y))
 #C_trim <- C[-non_j,]
 #x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-0.1)/r_vec)
-
+gam = pbeta(t_star,dat_alph,dat_bet)
 
 mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,Nx),
                           verbose = FALSE,
-                          gam = pbeta(t_star,dat_alph,dat_bet),
                           y = y){
   #Write some MH sampler
   burnin <- floor(burnin_prop*iters)
@@ -158,7 +158,7 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   return(list(x_mat = x_mat,x_acc = x_acc/(iters + burnin), x_ob=x_ob))
 }
 
-res2 <- mh_hist_trunc(iters = 1E4,burnin_prop = 0.3, r = 0.5,#kap = c(2E-3,2E-2,3E-2,2E-2,5E-1,
+res2 <- mh_hist_trunc(iters = 1E5,burnin_prop = 0.3, r = 0.5,#kap = c(2E-3,2E-2,3E-2,2E-2,5E-1,
                       #       1,1E-2,4E-1,1))
 #                       kap = c(5E-2,#z1
 #                               1E-1,#z2
@@ -176,16 +176,16 @@ res2 <- mh_hist_trunc(iters = 1E4,burnin_prop = 0.3, r = 0.5,#kap = c(2E-3,2E-2,
                       #gam = sum(y/length(x_dat)),
                       y = y)
 
-plot_dens(res2,r=0.5,T_out,save_pics = FALSE)
+plot_dens(res2,r=0.5,T_out,save_pics = FALSE,legend_side = 'topleft')
 lines(density(x_dat),col = 'green')
 
 plot_traces(save_pics = FALSE)
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_2_16/'
+meeting_folder <- 'meeting_2_23/'
 path <- paste0(meeting_parent,meeting_folder)
-save_pics = FALSE
-suffix = '_5'
+save_pics = TRUE
+suffix = '_49_bins'
 
 save(res2,file=paste0(path,'res',suffix,'.Rdata'))
 
@@ -242,7 +242,7 @@ T_out=seq(0,t_star,length=100)
 
 
 
-plot_dens <- function(results,r,T_out, save_pics = FALSE,...){
+plot_dens <- function(results,r,T_out, save_pics = FALSE,legend_side = 'topright',...){
   f_est <- est_dens2(results$x_mat,r,T_out = T_out)
   mean_est <- apply(f_est,2,mean)
   
@@ -254,7 +254,7 @@ plot_dens <- function(results,r,T_out, save_pics = FALSE,...){
   lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
   lines(T_out,dbeta(T_out,dat_alph,dat_bet),type ='l',col = 'red',lwd = 2)
-  legend('topleft',c('Post Mean','Post 95% Cred','Truth'),
+  legend(legend_side,c('Post Mean','Post 95% Cred','Truth'),
          lwd = 2,lty = c(1,2,1),col = c('black','blue','red'))
   if(save_pics) dev.off()
 }

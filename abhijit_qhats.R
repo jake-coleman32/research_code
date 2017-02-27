@@ -1,13 +1,13 @@
 #LHC for Abhijit's code
 library(lhs)
 setwd("/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/")
-set.seed(47)
-qhats <- maximinLHS(50,1)
+set.seed(48)
+qhats <- maximinLHS(10,1)
 (qhats <- round(sort(qhats*4.75 + 0.25),2))
 qhats <- c(0.25,qhats,5)
-#write.table(qhats, file = 'qhat_vals.dat', row.names=FALSE, col.names = FALSE)
+write.table(qhats, file = 'qhat_vals_100k.dat', row.names=FALSE, col.names = FALSE)
 
-(qhats <- c(0.25,read.table(file = 'qhat_vals.dat')[[1]],5))
+#(qhats <- c(0.25,read.table(file = 'qhat_vals.dat')[[1]],5))
 #read.table(file = 'A_J_dist.dat')[,2]*100000
 
 #Reading output

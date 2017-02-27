@@ -40,144 +40,6 @@ make_coef_mats <- function(N,alpha){
   
   return(list(A=A,B=B))
 }
-coef_5 <- make_coef_mats(5,alpha = alpha)
-A = coef_5$A
-B = coef_5$B
-
-
-
-
-mh_hist <- function(r = 0.5,iters = 1E4,kap_z =rep(1E-1,N), kap_w = rep(1E-1,N)){
-  #Write some MH sampler
-  burnin <- 0.1*iters
-  z_cur <- rnorm(N)
-  w_cur <- rnorm(N)
-  
-  p_star <- p_cur <- numeric(J-1)
-  p_cur <- sapply(seq_along(1:length(p_cur)),function(j){
-    sum(r^(1:N)*(z_cur*A[,j] + w_cur*B[,j])) + 0.1
-  })
-  l_cur <- sum(y*log(p_cur))
-  
-  z_mat <- w_mat <- matrix(0,iters,N)
-  z_acc <- z_ob <- w_acc <- w_ob <- numeric(N)
-  
-  for(i in 1:(iters+burnin)){
-    #propose new values for Z and W
-    
-    for(n in 1:N){
-      #Now W's
-      w_star_n <- rnorm(1,w_cur[n],kap_w[n])
-      w_star <- w_cur
-      w_star[n] <- w_star_n
-      
-      p_star <- sapply(seq_along(1:length(p_star)),function(j){
-        sum(2*r^(1:N)*(z_cur*A[,j] + w_star*B[,j] + bin_sizes[j]))
-      })      
-      
-      if(sum(p_star<0)){
-        l_star <- -Inf
-        w_ob[n] <- w_ob[n] + 1
-      }else{
-        l_star <- sum(y*log(p_star))
-      }
-      
-      ratio <- l_star + dnorm(w_star_n,log = TRUE) - 
-        l_cur - dnorm(w_cur[n],log = TRUE)
-      
-      if(runif(1)<exp(ratio)){
-        w_cur <- w_star
-        l_cur <- l_star
-        w_acc[n] <- w_acc[n] + 1
-      }
-      #else{
-      #  print(l_star)
-       # print(dnorm(w_star_n,log = TRUE))
-      #  print(l_cur)
-       # print(dnorm(w_cur[n],log = TRUE))
-      #}
-    }
-    
-    
-    for(n in 1:N){
-      #Z's first
-      z_star_n <- rnorm(1,z_cur[n],kap_z[n])
-      z_star <- z_cur
-      z_star[n] <- z_star_n
-      
-      
-      p_star <- sapply(seq_along(1:length(p_star)),function(j){
-        sum(sqrt(2)*r^(1:N)*(z_star*A[,j] + w_cur*B[,j])) + bin_sizes[j]
-      })      
-      
-      if(sum(p_star<0)){
-        l_star = -Inf
-        z_ob[n] <- z_ob[n] + 1
-      }else{
-        l_star <- sum(y*log(p_star))
-      }
-      ratio <- l_star + dnorm(z_star_n,log = TRUE) - 
-        l_cur - dnorm(z_cur[n],log = TRUE)
-      
-      if(runif(1)<exp(ratio)){
-        z_cur <- z_star
-        l_cur <- l_star
-        z_acc[n] <- z_acc[n] + 1
-      }
-    }
-
-    
-    
-    if(i>burnin){
-      z_mat[i-burnin,] <- z_cur
-      w_mat[i-burnin,] <- w_cur
-    }
-    
-  }
-  print(z_acc/(iters+burnin))
-  print(w_acc/(iters+burnin))
-  print("ob's")
-  print(z_ob)
-  print(w_ob)
-  
-  return(list(z_mat = z_mat,w_mat = w_mat,z_acc = z_acc, w_acc = w_acc,
-              z_ob=z_ob, w_ob = w_ob))
-}
-
-res <- mh_hist(r = 0.5,kap_z = c(rep(1E-10,N-1),1),kap_w = rep(1E-2,N))
-
-plot(res$z_mat[,3],type = 'l')
-plot(res$w_mat[,1],type = 'l')
-
-est_dens <- function(z_mat,w_mat,T_out=seq(0,1,length=20)){
-  f_mat <-matrix(0,dim(z_mat)[1],length(T_out))
-  N <- dim(z_mat)[2]
-  for(t in 1:length(T_out)){
-    f_mat[,t] <- 2*z_mat%*%matrix(r^(1:N)*cos(2*pi*T_out[t]*(1:N))) + 
-      2*w_mat%*%matrix(r^(1:N)*sin(2*pi*T_out[t]*(1:N)))
-  }
-  return(f_mat)
-}
-
-f_est <- est_dens(res$z_mat,res$w_mat)[-c(1:1000),]
-mean_est <- apply(f_est,2,mean)
-plot(T_out,mean_est,type = 'l')#,ylim = c(0,2))
-lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
-lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
-
-plot(T_out,dbeta(T_out,dat_alph,dat_bet))
-#
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -191,22 +53,21 @@ coef_5 <- make_coef_mats(5,alpha = alpha)
 A = coef_5$A
 B = coef_5$B
 
-
 C <- t(rbind(A,B))
 C <- C[,-5]#All zeroes
-Nx <- dim(C)[2]
+(Nx <- dim(C)[2])
 
 J <- dim(C)[1]
 r = 0.5
 r_vec <- sqrt(2)*c(r^(1:floor(Nx/2)),r^(1:ceiling(Nx/2)))
 
-non_j
+non_j = 1
 phat <- y/sum(y)
 C_trim <- C[-non_j,]
-x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-0.1)/r_vec)
 (bin_sizes <- (alpha-lag(alpha))[-1])
+x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-bin_sizes[-non_j])/r_vec)
 
-(y2 <- rbinom(length(y),size = y,p = 1E-2))
+#(y2 <- rbinom(length(y),size = y,p = 1E-2))
 
 mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,Nx),
                           verbose = FALSE,xstart= 'MLE',
@@ -308,7 +169,7 @@ res2 <- mh_hist_trunc(iters = 1E4,burnin_prop = 0.3, r = 0.5,#kap = c(2E-3,2E-2,
                              1E-1,#w4 -8
                              1E-1),#w5 -9
                      #kap = rep(0,Nx),
-                     verbose = FALSE,xstart = 'MLE',
+                     verbose = FALSE,xstart = 'rand',
                      y = y)
 plot_traces(save_pics = FALSE)
 
