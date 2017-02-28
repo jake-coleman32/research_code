@@ -48,10 +48,14 @@ num_counts <- 100000
 Y <- read_hist_data(hist_loc = paste0(jet_path,hist_folder),
                     q_file = q_vals_file) *num_counts
 d <- read.table(q_vals_file)[,1]
+t_star <- 0.5
+trunc_cols <- which(as.numeric(colnames(Y))<t_star)
+Y_trunc <- Y[,trunc_cols]
+
 
 I <- dim(Y)[1]
-J <- dim(Y)[2]
-alpha <- c(as.numeric(colnames(Y)),1)
+J <- dim(Y_trunc)[2]
+alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
 jitter = FALSE
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
@@ -67,8 +71,8 @@ make_coefs <- function(){
   A <- B <- matrix(0,N/2,J)
   for(n in 1:(N/2)){
     for(j in 2:(J+1)){
-      A[n,j-1] <- (sin(2*pi*n*alpha[j]) - sin(2*pi*n*alpha[j-1]))/(2*pi*n)
-      B[n,j-1] <- (cos(2*pi*n*alpha[j-1]) - cos(2*pi*n*alpha[j]))/(2*pi*n)
+      A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
+      B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
     }
   }
   
@@ -105,8 +109,8 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
   ell_cur <- rgamma(N,ell_a,ell_b)
   lam_cur <- rgamma(N,lam_a,lam_b)
   
-  p_cur <- t(replicate(I,b))
-  l_cur <- sum(Y*log(p_cur))
+  p_cur <- t(replicate(I,b/t_star))
+  l_cur <- sum(Y_trunc*log(p_cur))
   
   ell_acc <- lam_acc <- x_acc <- numeric(N)
   
@@ -132,7 +136,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
         
         
         #All the constraints
-        constr <- (-b - sqrt(2)*C[,-n]%*%R[-n,-n]%*%X_cur[i,-n])/(sqrt(2)*R[n,n]*C[,n])
+        constr <- (-b/t_star - sqrt(2)*C[,-n]%*%R[-n,-n]%*%X_cur[i,-n])/(sqrt(2)*R[n,n]*C[,n])
         
         #Lower constraints
         (a_constr <- constr[which(round(C[,n],10)>0)])
@@ -149,7 +153,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
             
             #For each bad constraint, check if the rest of X[i,] take care of it
             #If they don't auto-reject the whole vector
-            if(b[j] + sqrt(2)*C[j,-n]%*%R[-n,-n]%*%X_cur[i,-n]<=0){
+            if(b[j]/t_star + sqrt(2)*C[j,-n]%*%R[-n,-n]%*%X_cur[i,-n]<=0){
               print(paste("Bad times: i=",i,"n =",n,"j =",j))
               auto_reject = TRUE
               l_star = -Inf
@@ -175,13 +179,13 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
       X_star[,n] <- x_star_n
       
       
-      p_star <- t(sqrt(2)*C%*%R%*%t(X_star) + replicate(I,b))
+      p_star <- t(sqrt(2)*C%*%R%*%t(X_star) + replicate(I,b/t_star))
       if(sum(p_star<0)){
         print(paste("j = ",j,"i = ",i,"t = ",t,"n = ",n))
         stop("Dammit this shouldn't happen")
       }
       
-      l_star <- sum(Y*log(p_star))
+      l_star <- sum(Y_trunc*log(p_star))
       
       #adjusted <- dtmvnorm(x_cur_n,mean = x_star_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE) -
        # dtmvnorm(x_star_n,mean = x_cur_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE)
@@ -287,6 +291,45 @@ Rprof()
 summaryRprof('Hope_against_hope.out')
 
 
+i <- 4
 
+X <- hope$X
+
+X_i <- X[,i,]
+gam=1
+T_out=seq(0,t_star,length=75)
+
+est_dens_i <- function(x_mat, r){
+  f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
+  Nx <- dim(x_mat)[2]
+  for(t in 1:length(T_out)){
+    cos_vec <- cos(2*pi*T_out[t]*(1:floor(Nx/2))/t_star)*r^(1:floor(Nx/2))
+    sin_vec <- sin(2*pi*T_out[t]*(1:ceiling(Nx/2))/t_star)*r^(1:ceiling(Nx/2))
+    cos_sin_vec <- c(cos_vec,sin_vec)
+    
+    f_mat[,t] <- sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
+  }
+  return(f_mat)
+}
+
+f_est <- est_dens_i(x_mat=X_i,r=0.5)
+
+plot_dens_i <- function(f_est,r=0.5, save_pics = FALSE,legend_side = 'topright',...){
+  #f_est <- est_dens2(results$x_mat,r,T_out = T_out)
+  mean_est <- apply(f_est,2,mean)
+  
+  if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
+  plot(T_out,mean_est,type = 'l', main = 'GP Density Estimate',
+       ylab = 'Density',xlab = 'y',lwd = 2,
+       ylim = c(0,max(apply(f_est,2,quantile,0.975))),
+       ...)#,ylim = c(0,2))
+  lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
+  lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
+  legend(legend_side,c('Post Mean','Post 95% Cred'),
+         lwd = 2,lty = c(1,2),col = c('black','blue'))
+  if(save_pics) dev.off()
+}
+
+plot_dens_i(f_est)
 
 
