@@ -37,7 +37,7 @@ read_hist_data <- function(hist_loc, q_file){
   
 }
 
-jet_path <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
+jet_path <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT"
 hist_folder <- "q_dat_100k/"
 
 q_vals_file <- paste0(jet_path,"qhat_vals_100k.dat")
@@ -315,7 +315,6 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-Rprof('Hope_against_hope.out')
 hope <- hier_gp_mh(iters = 5E5,verbose = TRUE, burnin_prop = 0.3,
                    X_kap = matrix(nrow = I, byrow = FALSE,data = c(
                      rep(1E-7,I),#1
@@ -328,7 +327,6 @@ hope <- hier_gp_mh(iters = 5E5,verbose = TRUE, burnin_prop = 0.3,
                      rep(1E-4,I),#8
                      rep(1E-3,I))) #9
                    )
-Rprof()
 
 hope$x_acc
 hope$lam_acc
