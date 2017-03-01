@@ -1,6 +1,6 @@
 #Hierarchical GP
 library(TruncatedNormal)
-library(dtmvnorm)
+library(mvtnorm)
 library(dplyr)
 
 
@@ -64,14 +64,22 @@ b <- (alpha - lag(alpha))[-1]
 
 #Parameter things
 r <- 0.5
-N <- (J-1)-(J-1)%%2 #Closest even number less than the number of bins J
-R <- diag(rep(r^(1:(N/2)),2))
+N <- (J-1) #One fewer than number of bins: the max number for N
+           #More in B matrix than A matrix
+R <- diag(c(r^(1:floor(N/2)),r^(1:ceiling(N/2))))
 
 make_coefs <- function(){
-  A <- B <- matrix(0,N/2,J)
-  for(n in 1:(N/2)){
+  A <- matrix(0,floor(N/2),J)
+  B <- matrix(0,ceiling(N/2),J)
+  for(n in 1:floor((N/2))){
     for(j in 2:(J+1)){
       A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
+      B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
+    }
+  }
+  if(N%%2){
+    n = ceiling(N/2)
+    for(j in 2:(J+1)){
       B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
     }
   }
@@ -82,6 +90,27 @@ make_coefs <- function(){
 A <- make_coefs()$A
 B <- make_coefs()$B
 C <- cbind(t(A),t(B))
+
+show_ranks = TRUE
+if(show_ranks){
+  print(paste("A",rankMatrix(t(A))[1]))
+  print(paste("B",rankMatrix(t(B))[1]))
+  print(paste("C",rankMatrix(t(C))[1]))
+}
+
+#Starting place for X
+#Use fact that the sum of probabilities add to one
+#Could be issue if we trim before observations end
+#I.e. if gam != 1
+j_trim <- 1
+C_trim <- C[-j_trim,]
+P_hat <- t(Y_trunc[,-j_trim]/num_counts) #P_hat is (J-1)xI
+
+#Different starting points
+X_mle <- sqrt(0.5)*solve(R)%*%solve(C_trim)%*%(P_hat - replicate(I,b[-j_trim]/t_star))
+X_mle <- replicate(12,rep(0,9))
+
+
 
 #Priors
 lam_a <- rep(1,N)
@@ -105,12 +134,12 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
   lam_mat <- ell_mat <- matrix(0,iters,N)
 
   #Current values
-  X_cur <- matrix(0,I,N)
+  X_cur <- t(X_mle)
   ell_cur <- rgamma(N,ell_a,ell_b)
   lam_cur <- rgamma(N,lam_a,lam_b)
   
-  p_cur <- t(replicate(I,b/t_star))
-  l_cur <- sum(Y_trunc*log(p_cur))
+  p_cur <- t(sqrt(2)*C%*%R%*%t(X_cur) + replicate(I,b/t_star))
+  l_cur <- sum(Y_trunc*log(p_cur))# + sum(Y_trunc[,j_trim]*log(1-apply(p_cur,1,sum)))
   
   ell_acc <- lam_acc <- x_acc <- numeric(N)
   
@@ -140,7 +169,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
         
         #Lower constraints
         (a_constr <- constr[which(round(C[,n],10)>0)])
-        
+
         #Upper constraints
         (b_constr <- constr[which(round(C[,n],10)<0)])
         
@@ -161,8 +190,8 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
           }
         }
         
-        l[i] <- max(a_constr)
-        u[i] <- min(b_constr)
+        l[i] <- ifelse(length(a_constr),max(a_constr),-Inf)
+        u[i] <- ifelse(length(b_constr),min(b_constr),Inf)
         
       }# i loop
       
@@ -187,8 +216,11 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
       
       l_star <- sum(Y_trunc*log(p_star))
       
+      
+      #This takes forever, so I'm not including it right now
       #adjusted <- dtmvnorm(x_cur_n,mean = x_star_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE) -
        # dtmvnorm(x_star_n,mean = x_cur_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE)
+      
       #Ratio
       ratio <- l_star - l_cur +
         
@@ -209,7 +241,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
 #         print(paste('u',u))
 #       }
       
-      
+      if(length(ratio)>1){stop(paste("wtf n=",n))}
       if(runif(1)<exp(ratio)){
         x_acc[n] <- x_acc[n] + 1
         l_cur <- l_star
@@ -284,20 +316,67 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
 }
 
 Rprof('Hope_against_hope.out')
-hope <- hier_gp_mh(iters = 4000,verbose = TRUE,
-                   X_kap = replicate(N,rep(1E-2,I)))
+hope <- hier_gp_mh(iters = 5E5,verbose = TRUE, burnin_prop = 0.3,
+                   X_kap = matrix(nrow = I, byrow = FALSE,data = c(
+                     rep(1E-7,I),#1
+                     rep(1E-5,I),#2
+                     rep(1E-6,I), #3
+                     rep(1E-4,I), #4
+                     rep(1E-7,I),#5
+                     rep(1E-6,I),#6
+                     rep(1E-5,I),#7
+                     rep(1E-4,I),#8
+                     rep(1E-3,I))) #9
+                   )
 Rprof()
 
-summaryRprof('Hope_against_hope.out')
+hope$x_acc
+hope$lam_acc
+hope$ell_acc
 
+save(hope, file = "run_1k.Rdata")
 
-i <- 4
+stop("We're done here")
 
+blah = 1:5
+save(blah,file = "didnt_stop.Rdata")
+#summaryRprof('Hope_against_hope.out')
 X <- hope$X
-
+i <- 4
 X_i <- X[,i,]
+
+plot_traces(i,save_pics = FALSE)
+
+
+plot_dens_i(X_i)
+plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
+
+
+
 gam=1
 T_out=seq(0,t_star,length=75)
+
+
+
+plot_traces <- function(i,save_pics = FALSE){
+  
+  for(n in 1:N){
+    if(n<ceiling(N/2)){
+      var_type = 'Z'
+      index = n
+    }
+    else{
+      var_type = 'W'
+      index = n-floor(N/2)
+    }
+    if(save_pics) pdf(paste0(path,var_type,i,suffix,'.pdf'))
+    plot(X[,i,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
+         main = bquote('Trace Plot of '~.(var_type)[.(index)]),
+         xlab = 'Iteration')
+    if(save_pics)dev.off()
+  }
+}
+
 
 est_dens_i <- function(x_mat, r){
   f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
@@ -312,10 +391,9 @@ est_dens_i <- function(x_mat, r){
   return(f_mat)
 }
 
-f_est <- est_dens_i(x_mat=X_i,r=0.5)
 
-plot_dens_i <- function(f_est,r=0.5, save_pics = FALSE,legend_side = 'topright',...){
-  #f_est <- est_dens2(results$x_mat,r,T_out = T_out)
+plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',...){
+  f_est <- est_dens_i(x_mat,r)
   mean_est <- apply(f_est,2,mean)
   
   if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
@@ -325,11 +403,11 @@ plot_dens_i <- function(f_est,r=0.5, save_pics = FALSE,legend_side = 'topright',
        ...)#,ylim = c(0,2))
   lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
-  legend(legend_side,c('Post Mean','Post 95% Cred'),
-         lwd = 2,lty = c(1,2),col = c('black','blue'))
+ # legend(legend_side,c('Post Mean','Post 95% Cred'),
+  #       lwd = 2,lty = c(1,2),col = c('black','blue'))
   if(save_pics) dev.off()
 }
 
-plot_dens_i(f_est)
+
 
 
