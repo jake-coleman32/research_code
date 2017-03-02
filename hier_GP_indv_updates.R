@@ -1,4 +1,5 @@
 #Hierarchical GP
+#Individual updates
 library(TruncatedNormal)
 library(mvtnorm)
 library(dplyr)
@@ -6,7 +7,7 @@ library(dplyr)
 
 
 GP_cov <- function(d,lambda,ell,nugget = 0.){
-
+  
   out_mat <- lambda^(-1)*exp(-as.matrix(dist(d))^2/ell^2) + nugget*diag(length(d))
   
   return(out_mat)
@@ -15,10 +16,12 @@ GP_cov <- function(d,lambda,ell,nugget = 0.){
 GP_cross_cov <- function(d,d_star,lambda,ell){
   inds <- 1:length(d)
   
-  out_mat <- lambda^(-1)*exp(-as.matrix(dist(c(d,d)))[inds,-inds]^2/ell^2)
+  out_mat <- lambda^(-1)*exp(-as.matrix(dist(c(d,d_star)))[inds,-inds]^2/ell^2)
   
   return(out_mat)
 }
+
+GP_cross_cov(d_scaled[i],d_scaled[-i],lam_cur[n],ell_cur[n])
 
 #Data stuff
 read_hist_data <- function(hist_loc, q_file){
@@ -56,6 +59,7 @@ t_star <- 0.5
 trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
 
+
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
 alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
@@ -68,8 +72,9 @@ b <- (alpha - lag(alpha))[-1]
 #Parameter things
 r <- 0.5
 N <- (J-1) #One fewer than number of bins: the max number for N
-           #More in B matrix than A matrix
-R <- diag(c(r^(1:floor(N/2)),r^(1:ceiling(N/2))))
+#More in B matrix than A matrix
+r_vec <- c(r^(1:floor(N/2)),r^(1:ceiling(N/2)))
+R <- diag(r_vec)
 
 make_coefs <- function(){
   A <- matrix(0,floor(N/2),J)
@@ -124,27 +129,28 @@ ell_b <- rep(1,N)
 
 
 
-hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
+hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
                        delta_lam = rep(0.3,N),
                        delta_ell = rep(0.3,N),
                        X_kap = replicate(N,rep(1E-1,I)), #column n is diagonal of proposal
-                                                        #for GP n
+                       #for GP n
                        verbose = FALSE
                        ){
   burnin <- iters*burnin_prop
   
-  X_array <- array(0,dim = c(iters,I,N)) #Columns are GPs, rows are histograms
+  X_array <- array(0,dim = c(iters,N,I)) #Columns are GPs, rows are histograms
   lam_mat <- ell_mat <- matrix(0,iters,N)
-
+  
   #Current values
-  X_cur <- t(X_mle)
+  X_cur <- X_mle #currently N x I
   ell_cur <- rgamma(N,ell_a,ell_b)
   lam_cur <- rgamma(N,lam_a,lam_b)
   
-  p_cur <- t(sqrt(2)*C%*%R%*%t(X_cur) + replicate(I,b/t_star))
+  p_cur <- t(sqrt(2)*C%*%sweep(X_cur,1,r_vec,"*") + replicate(I,b/t_star))
   l_cur <- sum(Y_trunc*log(p_cur))# + sum(Y_trunc[,j_trim]*log(1-apply(p_cur,1,sum)))
   
-  ell_acc <- lam_acc <- x_acc <- numeric(N)
+  ell_acc <- lam_acc  <- numeric(N)
+  x_acc <- matrix(0,N,I)
   
   time_start <- proc.time()
   for(t in 1:(burnin + iters)){
@@ -159,20 +165,20 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
       
       #Update X_n
       auto_reject = FALSE
-      x_cur_n <- X_cur[,n]
+      x_cur_n <- X_cur[n,]
       
       #Need to find upper and lower bounds for each histogram
-      l <- -Inf*(numeric(I) + 1)
-      u <- Inf*(numeric(I) + 1)
+    #  l <- -Inf*(numeric(I) + 1)
+     # u <- Inf*(numeric(I) + 1)
       for(i in 1:I){
         
         
         #All the constraints
-        constr <- (-b/t_star - sqrt(2)*C[,-n]%*%R[-n,-n]%*%X_cur[i,-n])/(sqrt(2)*R[n,n]*C[,n])
+        constr <- (-b/t_star - sqrt(2)*C[,-n]%*%(r_vec[-n]*X_cur[-n,i]))/(sqrt(2)*r_vec[n]*C[,n])
         
         #Lower constraints
         (a_constr <- constr[which(round(C[,n],10)>0)])
-
+        
         #Upper constraints
         (b_constr <- constr[which(round(C[,n],10)<0)])
         
@@ -185,7 +191,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
             
             #For each bad constraint, check if the rest of X[i,] take care of it
             #If they don't auto-reject the whole vector
-            if(b[j]/t_star + sqrt(2)*C[j,-n]%*%R[-n,-n]%*%X_cur[i,-n]<=0){
+            if(b[j]/t_star + sqrt(2)*C[j,-n]%*%(r_vec[-n]*X_cur[-n,i])<=0){
               print(paste("Bad times: i=",i,"n =",n,"j =",j))
               auto_reject = TRUE
               l_star = -Inf
@@ -193,63 +199,55 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
           }
         }
         
-        l[i] <- ifelse(length(a_constr),max(a_constr),-Inf)
-        u[i] <- ifelse(length(b_constr),min(b_constr),Inf)
+        #Update X_n[i]
+        (l <- ifelse(length(a_constr),max(a_constr),-Inf))
+        (u <- ifelse(length(b_constr),min(b_constr),Inf))
+        x_cur_i <- x_cur_n[i]
+        (x_st_i <- rtruncnorm(1,mean = x_cur_i,a = l, b = u,sd = X_kap[i,n]))
+        
+        (x_cond <- x_cur_n[-i])
+        (sig_11 = 1/lam_cur[n])
+        (sig_22 <- GP_cov(d_scaled[-i],lam_cur[n],ell_cur[n],nugget = 1E-5))
+        (sig_12 <- t(matrix(GP_cross_cov(d_scaled[i],d_scaled[-i],lam_cur[n],ell_cur[n]))))
+        
+        (prior_mean = sig_12%*%(solve(sig_22)%*%x_cond))
+        (prior_var = sig_11 - sig_12%*%solve(sig_22)%*%t(sig_12))
+        
+        X_star <- X_cur
+        X_star[n,i] <- x_st_i
+        
+        
+        p_star <- t(sqrt(2)*C%*%(sweep(X_star,1,r_vec,"*")) + replicate(I,b/t_star))
+        if(sum(p_star<0)){
+          print(paste("j = ",j,"i = ",i,"t = ",t,"n = ",n))
+          stop("Dammit this shouldn't happen")
+        }
+        
+        l_star <- sum(Y_trunc*log(p_star))
+        
+        adjust <- dtruncnorm(x=x_cur_i,a = l,b=u,mean = x_st_i,sd = X_kap[i,n]) -
+          dtruncnorm(x=x_st_i,a = l,b=u,mean = x_cur_i,sd = X_kap[i,n])
+        
+        ratio <- l_star - l_cur +
+          
+          #Prior
+          dnorm(x_st_i,mean = prior_mean, sd = sqrt(prior_var)) - 
+          dnorm(x_cur_i,mean = prior_mean, sd = sqrt(prior_var)) + 
+          
+          #Adjustment ratio
+          adjust
+        
+        if(length(ratio)>1){stop(paste("wtf n=",n))}
+        if(runif(1)<exp(ratio)){
+          x_acc[n,i] <- x_acc[n,i] + 1
+          l_cur <- l_star
+          X_cur[n,i] <- x_st_i
+        }
+        
         
       }# i loop
       
-      #Draw truncated normal proposal
-      #See help file for instruction
-      x_star_n <- mvrandn(l = l - x_cur_n,
-                          u = u - x_cur_n, 
-                          Sig = diag(X_kap[,n]),
-                          n = 1) + 
-        x_cur_n
-      
       #Calculate proposed likelihood based on proposed x_star_n
-      X_star <- X_cur
-      X_star[,n] <- x_star_n
-      
-      
-      p_star <- t(sqrt(2)*C%*%R%*%t(X_star) + replicate(I,b/t_star))
-      if(sum(p_star<0)){
-        print(paste("j = ",j,"i = ",i,"t = ",t,"n = ",n))
-        stop("Dammit this shouldn't happen")
-      }
-      
-      l_star <- sum(Y_trunc*log(p_star))
-      
-      
-      #This takes forever, so I'm not including it right now
-      #adjusted <- dtmvnorm(x_cur_n,mean = x_star_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE) -
-       # dtmvnorm(x_star_n,mean = x_cur_n,sigma = diag(X_kap[,n]),lower = l,upper = u,log = TRUE)
-      
-      #Ratio
-      ratio <- l_star - l_cur +
-        
-        #Priors
-        dmvnorm(x=x_star_n,sigma = GP_cov(d_scaled,lambda = lam_cur[n], ell = ell_cur[n], nugget = 1E-8),
-                log = TRUE) - 
-        dmvnorm(x=x_cur_n,sigma = GP_cov(d_scaled,lambda = lam_cur[n], ell = ell_cur[n], nugget = 1E-8),
-                log = TRUE)  #+
-        
-        #Proposals
-        #Arrggg Botev doesn't include pdfs
-    #    adjusted
-      
-#       if(n %in% c(1,10)){
-#         print(paste('xst',x_star_n))
-#         print(paste('xcur',x_cur_n))
-#         print(paste('l',l))
-#         print(paste('u',u))
-#       }
-      
-      if(length(ratio)>1){stop(paste("wtf n=",n))}
-      if(runif(1)<exp(ratio)){
-        x_acc[n] <- x_acc[n] + 1
-        l_cur <- l_star
-        X_cur[,n] <- x_star_n
-      }
       
       #############
       #Update ell_n
@@ -259,11 +257,11 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
       adjust_ratio <- delta_ell[n]*z_ell
       
       #MH Ratio
-        
+      
       ratio <- 
         #"Likelihood" - X prior
-        dmvnorm(X_cur[,n],sigma = GP_cov(d_scaled,lam_cur[n],ell_st,nugget = 1E-8),log = TRUE) -
-        dmvnorm(X_cur[,n],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
+        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_st,nugget = 1E-8),log = TRUE) -
+        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
         
         #Priors
         dgamma(ell_st,ell_a[n],ell_b[n],log = TRUE) -
@@ -271,7 +269,7 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
         
         #Proposal Adjustment
         adjust_ratio
-        
+      
       if(ratio + rexp(1)>0){
         ell_acc[n] <- ell_acc[n] + 1
         ell_cur[n] <- ell_st
@@ -286,8 +284,8 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
       
       ratio <- 
         #"Likelihood" - X prior
-        dmvnorm(X_cur[,n],sigma = GP_cov(d_scaled,lam_st,ell_cur[n],nugget = 1E-8),log = TRUE) -
-        dmvnorm(X_cur[,n],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
+        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_st,ell_cur[n],nugget = 1E-8),log = TRUE) -
+        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
         
         #Priors
         dgamma(lam_st,lam_a[n],lam_b[n],log = TRUE)-
@@ -318,22 +316,24 @@ hier_gp_mh <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-hope <- hier_gp_mh(iters = 1E3,verbose = TRUE, burnin_prop = 0.3,
-                   X_kap = matrix(nrow = I, byrow = FALSE,data = c(
-                     rep(1E-7,I),#1
-                     rep(1E-5,I),#2
-                     rep(1E-6,I), #3
-                     rep(1E-4,I), #4
-                     rep(1E-7,I),#5
-                     rep(1E-6,I),#6
-                     rep(1E-5,I),#7
-                     rep(1E-4,I),#8
-                     rep(1E-3,I))) #9
-                   )
+hope_i <- hier_gp_mh_i(iters = 1E3,verbose = TRUE, burnin_prop = 0.3,
+                    X_kap = matrix(nrow = I, byrow = FALSE,data = c(
+                      rep(1E-3,I),#1
+                      rep(1E-3,I),#2
+                      rep(1E-3,I), #3
+                      rep(1E-2,I), #4
+                      rep(1E-3,I),#5
+                      rep(1E-3,I),#6
+                      rep(1E-2,I),#7
+                      rep(1E-1,I),#8
+                      rep(1E-1,I))) #9
+)
 
-hope$x_acc
-hope$lam_acc
-hope$ell_acc
+hope_i$x_acc
+apply(hope_i$x_acc,1,mean)
+
+hope_i$lam_acc
+hope_i$ell_acc
 
 save(hope, file = "run_1k.Rdata")
 
@@ -342,20 +342,20 @@ stop("We're done here")
 blah = 1:5
 save(blah,file = "didnt_stop.Rdata")
 #summaryRprof('Hope_against_hope.out')
-X <- hope$X
-i <- 4
-X_i <- X[,i,]
+X <- hope_i$X
+i <- 5
+X_i <- X[,,i]
 
 plot_traces(i,save_pics = FALSE)
 
-
+gam=1
+T_out=seq(0,t_star,length=75)
 plot_dens_i(X_i)
 plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
 
 
 
-gam=1
-T_out=seq(0,t_star,length=75)
+
 
 
 
@@ -371,7 +371,7 @@ plot_traces <- function(i,save_pics = FALSE){
       index = n-floor(N/2)
     }
     if(save_pics) pdf(paste0(path,var_type,i,suffix,'.pdf'))
-    plot(X[,i,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
+    plot(X_i[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
          main = bquote('Trace Plot of '~.(var_type)[.(index)]),
          xlab = 'Iteration')
     if(save_pics)dev.off()
@@ -404,7 +404,7 @@ plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',
        ...)#,ylim = c(0,2))
   lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
- # legend(legend_side,c('Post Mean','Post 95% Cred'),
+  # legend(legend_side,c('Post Mean','Post 95% Cred'),
   #       lwd = 2,lty = c(1,2),col = c('black','blue'))
   if(save_pics) dev.off()
 }
