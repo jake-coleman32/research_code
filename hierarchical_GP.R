@@ -2,6 +2,7 @@
 library(TruncatedNormal)
 library(mvtnorm)
 library(dplyr)
+library(truncnorm)
 
 
 
@@ -42,7 +43,7 @@ jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
 current_path = jet_path_lap
-
+setwd(current_path)
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
 
@@ -335,7 +336,7 @@ hope$x_acc
 hope$lam_acc
 hope$ell_acc
 
-save(hope, file = "run_1k.Rdata")
+save(hope_i, file = "run_1k.Rdata")
 
 stop("We're done here")
 

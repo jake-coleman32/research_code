@@ -342,11 +342,21 @@ stop("We're done here")
 blah = 1:5
 save(blah,file = "didnt_stop.Rdata")
 #summaryRprof('Hope_against_hope.out')
-X <- hope_i$X
-i <- 5
-X_i <- X[,,i]
 
-plot_traces(i,save_pics = FALSE)
+
+X <- hope_i$X
+
+x_means <- apply(X,c(2,3),mean)
+x_means - X_mle
+
+thin = 1
+iters <- 1:dim(X)[1]
+X_thin <- X[!iters%%thin,,]
+
+i <- 4
+X_i <- X_thin[,,i]
+
+plot_traces(X_i,save_pics = FALSE)
 
 gam=1
 T_out=seq(0,t_star,length=75)
@@ -354,12 +364,16 @@ plot_dens_i(X_i)
 plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
 
 
+meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
+meeting_folder <- 'meeting_3_9/'
+path <- paste0(meeting_parent,meeting_folder)
+save_pics = TRUE
+suffix = '_indv_large'
 
 
 
 
-
-plot_traces <- function(i,save_pics = FALSE){
+plot_traces <- function(x_hist,save_pics = FALSE){
   
   for(n in 1:N){
     if(n<ceiling(N/2)){
@@ -370,13 +384,29 @@ plot_traces <- function(i,save_pics = FALSE){
       var_type = 'W'
       index = n-floor(N/2)
     }
-    if(save_pics) pdf(paste0(path,var_type,i,suffix,'.pdf'))
-    plot(X_i[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
-         main = bquote('Trace Plot of '~.(var_type)[.(index)]),
+    if(save_pics) pdf(paste0(path,var_type,n,suffix,'.pdf'))
+    plot(x_hist[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
+         main = bquote('Trace Plot of '~.(var_type)[.(index)])~', Histogram'~.(i),
          xlab = 'Iteration')
-    if(save_pics)dev.off()
+    if(save_pics) dev.off()
   }
 }
+
+plot_thetas <- function(save_pics = FALSE){
+  for(n in 1:N){
+    if(save_pics) pdf(file = paste0(path,'lam',n,suffix,'.pdf'))
+    plot(hope_i$lam[,n],xlab = "Iteration",ylab = bquote(lambda[.(n)]),type = 'l',
+         main = bquote('Trace Plot of '~lambda[.(n)]))
+    if(save_pics) dev.off()
+    
+    if(save_pics) pdf(file = paste0(path,'ell',n,suffix,'.pdf'))
+    plot(hope_i$ell[,n],xlab = "Iteration",ylab = bquote('ell'[.(n)]),type = 'l',
+         main = bquote('Trace Plot of ell'[.(n)]))
+    if(save_pics) dev.off()
+  }
+}
+
+plot_thetas(save_pics = TRUE)
 
 
 est_dens_i <- function(x_mat, r){
@@ -387,7 +417,7 @@ est_dens_i <- function(x_mat, r){
     sin_vec <- sin(2*pi*T_out[t]*(1:ceiling(Nx/2))/t_star)*r^(1:ceiling(Nx/2))
     cos_sin_vec <- c(cos_vec,sin_vec)
     
-    f_mat[,t] <- sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
+    f_mat[,t] <- sqrt(2)*t(matrix(cos_sin_vec))%*%t(x_mat) + gam/t_star
   }
   return(f_mat)
 }
@@ -410,5 +440,67 @@ plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',
 }
 
 
+est_probs_i <- function(i,save_pics = FALSE){
+  p_out <- sqrt(2)*C%*%sweep(t(X[,,i]),1,r_vec,FUN = "*") + b/t_star
+  return(p_out)
+}
+
+i = 5
+plot(alpha[-J],apply(est_probs_i(i),1,mean),type = 'l')
+lines(alpha[-J],apply(est_probs_i(i),1,quantile,probs = 0.025),lty = 2,col = 'blue')
+lines(alpha[-J],apply(est_probs_i(i),1,quantile,probs = 0.975),lty = 2,col = 'blue')
+points(as.numeric(colnames(Y_trunc)),apply(est_probs_i(i-1),1,mean))
+points(as.numeric(colnames(Y_trunc)),Y_trunc[i,]/num_counts)
 
 
+#Ok let's plot all data points
+cols = rainbow(I)
+
+if(save_pics) pdf(file = paste0(path,'all_data',suffix,'.pdf'))
+plot(as.numeric(colnames(Y_trunc)),
+     Y_trunc[1,]/num_counts,col = cols[1],type = 'l',
+     xlab = 'Aj',
+     ylab = 'Fraction of Bin',
+     main = 'Data Across Input')
+for(i in 2:I){
+  lines(as.numeric(colnames(Y_trunc)),
+        Y_trunc[i,]/num_counts,col = cols[i],type = 'l')
+}
+if(save_pics) dev.off()
+
+#Now lets plot our estiamtes
+#Doesn't vary more than the 95% confidence intervals
+if(save_pics) pdf(file = paste0(path,'all_emulations',suffix,'.pdf'))
+plot(as.numeric(colnames(Y_trunc)),
+    apply(est_probs_i(1),1,mean),col = cols[1],type = 'l',
+     xlab = 'Aj',
+     ylab = 'Probability of Bin',
+     main = 'Emulated Values Across Input')
+for(i in 2:I){
+  lines(as.numeric(colnames(Y_trunc)),
+        apply(est_probs_i(i),1,mean),col = cols[i],type = 'l')
+}
+if(save_pics) dev.off() 
+
+##Drawing from prior
+
+#Draw lamda, ell
+#Draw N GP realizations
+#Keep if none of the P's are negative
+##There is no chance of this happening
+
+lam <- rgamma(N,lam_a,lam_b)
+ell <- rgamma(N,ell_a,ell_b)
+
+how_many=0
+bad_p = TRUE
+while(bad_p){
+  how_many = how_many + 1
+  X_prior <- matrix(0,N,I)
+  for(n in 1:N){
+    X_prior[n,] <- rmvnorm(1,sigma = GP_cov(d_scaled,lam[n],ell[n]))
+  }
+  
+  P <- sqrt(2)*C%*%sweep(X_prior,1,r_vec) + replicate(I,b/t_star)
+  if(!(sum(P)>0)) bad_p=FALSE
+}
