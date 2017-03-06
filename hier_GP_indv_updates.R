@@ -349,7 +349,7 @@ X <- hope_i$X
 x_means <- apply(X,c(2,3),mean)
 x_means - X_mle
 
-thin = 1
+thin = 500
 iters <- 1:dim(X)[1]
 X_thin <- X[!iters%%thin,,]
 
@@ -440,15 +440,15 @@ plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',
 }
 
 
-est_probs_i <- function(i,save_pics = FALSE){
-  p_out <- sqrt(2)*C%*%sweep(t(X[,,i]),1,r_vec,FUN = "*") + b/t_star
+est_probs_i <- function(X_i,save_pics = FALSE){
+  p_out <- sqrt(2)*C%*%sweep(t(X_i),1,r_vec,FUN = "*") + b/t_star
   return(p_out)
 }
 
 i = 5
-plot(alpha[-J],apply(est_probs_i(i),1,mean),type = 'l')
-lines(alpha[-J],apply(est_probs_i(i),1,quantile,probs = 0.025),lty = 2,col = 'blue')
-lines(alpha[-J],apply(est_probs_i(i),1,quantile,probs = 0.975),lty = 2,col = 'blue')
+plot(alpha[-J],apply(est_probs_i(X_i),1,mean),type = 'l')
+lines(alpha[-J],apply(est_probs_i(X_i),1,quantile,probs = 0.025),lty = 2,col = 'blue')
+lines(alpha[-J],apply(est_probs_i(X_i),1,quantile,probs = 0.975),lty = 2,col = 'blue')
 points(as.numeric(colnames(Y_trunc)),apply(est_probs_i(i-1),1,mean))
 points(as.numeric(colnames(Y_trunc)),Y_trunc[i,]/num_counts)
 
@@ -472,13 +472,13 @@ if(save_pics) dev.off()
 #Doesn't vary more than the 95% confidence intervals
 if(save_pics) pdf(file = paste0(path,'all_emulations',suffix,'.pdf'))
 plot(as.numeric(colnames(Y_trunc)),
-    apply(est_probs_i(1),1,mean),col = cols[1],type = 'l',
+    apply(est_probs_i(X[,,1]),1,mean),col = cols[1],type = 'l',
      xlab = 'Aj',
      ylab = 'Probability of Bin',
      main = 'Emulated Values Across Input')
 for(i in 2:I){
   lines(as.numeric(colnames(Y_trunc)),
-        apply(est_probs_i(i),1,mean),col = cols[i],type = 'l')
+        apply(est_probs_i(X[,,i]),1,mean),col = cols[i],type = 'l')
 }
 if(save_pics) dev.off() 
 
@@ -504,3 +504,48 @@ while(bad_p){
   P <- sqrt(2)*C%*%sweep(X_prior,1,r_vec) + replicate(I,b/t_star)
   if(!(sum(P)>0)) bad_p=FALSE
 }
+
+
+
+#To predict new d
+#Use draws from X as conditioning values
+#For each draw, draw from conditional normal - so N*500k cond. normal draws
+#Do this for each X_n?
+
+pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell,verbose = FALSE){
+  #Loop through N components, collect values
+  #500k x 9 matrix
+  
+  pred_components <- matrix(0,dim(X)[1],N)
+  
+  for(n in 1:N){
+    pred_mean <- pred_var <- dim(X)[1]
+    time_start <- proc.time()
+    for(t in 1:dim(X)[1]){
+      lam_t <- lam[t,n]
+      ell_t <- ell[t,n]
+      
+      sig_22 <- GP_cov(d_cond,lambda = lam_t,ell = ell_t,nugget = 1E-6)
+      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam_t,ell = ell_t))
+      
+      sig_22_inv <- solve(sig_22)
+      pred_mean[t] <- sig_12%*%(sig_22_inv%*%X[t,n,])
+      pred_var[t] <- 1/lam_t - sig_12%*%sig_22_inv%*%t(sig_12)
+      
+      if(!t%%1000 & verbose){
+        flush.console()
+        cat("\r t = ", t, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
+      }
+    }
+    
+    pred_components[,n] <- rnorm(t,pred_mean,sqrt(pred_var))
+    print(paste0("Done ",n))
+  }
+  
+  return(pred_components)
+}
+
+system.time(test <- pred_p(X=X_thin, d_prime = 0.5, d_cond = d_scaled,lam = hope_i$lam, 
+               ell = hope_i$ell))
+
+#But can't do this for calibration - take posterior means? or MAP?
