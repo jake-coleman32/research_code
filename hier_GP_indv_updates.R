@@ -51,10 +51,12 @@ q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
 #Data
 num_counts <- 100000
+holdout <- 7
 Y <- read_hist_data(hist_loc = paste0(current_path,hist_folder),
                     q_file = q_vals_file) *num_counts
-d <- read.table(q_vals_file)[,1]
-(d_scaled <- (d-min(d))/(max(d)-min(d)) )
+Y <- Y[-holdout,]
+d <- read.table(q_vals_file)[-holdout,1]
+(d_scaled <- (d-min(d))/(max(d)-min(d)))
 t_star <- 0.5
 trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
@@ -511,26 +513,35 @@ while(bad_p){
 #Use draws from X as conditioning values
 #For each draw, draw from conditional normal - so N*500k cond. normal draws
 #Do this for each X_n?
+cov_inv_mats <- vector("list",N)
 
-pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell,verbose = FALSE){
+for(n in 1:N){
+  cov_inv_mats[[n]] <- vector("list",dim(X_thin)[1])
+  for(t in 1:dim(X_thin)[1]){
+    lam_nt <- hope_i$lam[t,n]
+    ell_nt <- hope_i$ell[t,n]
+    cov_inv_mats[[n]][[t]] <- solve(GP_cov(d_scaled,lambda = lam_nt,ell = ell_nt,nugget = 1E-6))
+  }
+}
+
+pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats, verbose = FALSE){
   #Loop through N components, collect values
   #500k x 9 matrix
   
-  pred_components <- matrix(0,dim(X)[1],N)
+  n_iters <- dim(X)[1]
+  pred_components <- matrix(0,n_iters,N)
+  
   
   for(n in 1:N){
     pred_mean <- pred_var <- dim(X)[1]
     time_start <- proc.time()
-    for(t in 1:dim(X)[1]){
-      lam_t <- lam[t,n]
-      ell_t <- ell[t,n]
+    for(t in 1:n_iters){
+      sig_22_inv <- sig_22_inv_list[[n]][[t]]
+      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam[t,n],ell = ell[t,n]))
       
-      sig_22 <- GP_cov(d_cond,lambda = lam_t,ell = ell_t,nugget = 1E-6)
-      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam_t,ell = ell_t))
-      
-      sig_22_inv <- solve(sig_22)
       pred_mean[t] <- sig_12%*%(sig_22_inv%*%X[t,n,])
-      pred_var[t] <- 1/lam_t - sig_12%*%sig_22_inv%*%t(sig_12)
+      pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
+      if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
       
       if(!t%%1000 & verbose){
         flush.console()
@@ -538,10 +549,12 @@ pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell,verbose = FALSE){
       }
     }
     
+    
     pred_components[,n] <- rnorm(t,pred_mean,sqrt(pred_var))
-    print(paste0("Done ",n))
+    #pred_components[,n] <- pred_mean
+    
   }
-  
+
   return(pred_components)
 }
 
