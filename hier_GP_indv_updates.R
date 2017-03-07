@@ -54,12 +54,16 @@ num_counts <- 100000
 holdout <- 7
 Y <- read_hist_data(hist_loc = paste0(current_path,hist_folder),
                     q_file = q_vals_file) *num_counts
+Y_new <- Y[holdout,]
 Y <- Y[-holdout,]
 d <- read.table(q_vals_file)[-holdout,1]
+d_new <-read.table(q_vals_file)[holdout,1]
 (d_scaled <- (d-min(d))/(max(d)-min(d)))
+d_new_s <- (d_new-min(d))/(max(d)-min(d))
 t_star <- 0.5
 trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
+Y_new_trunc <- Y_new[trunc_cols]
 
 
 I <- dim(Y)[1]
@@ -408,7 +412,7 @@ plot_thetas <- function(save_pics = FALSE){
   }
 }
 
-plot_thetas(save_pics = TRUE)
+plot_thetas(save_pics = FALSE)
 
 
 est_dens_i <- function(x_mat, r){
@@ -468,7 +472,62 @@ for(i in 2:I){
   lines(as.numeric(colnames(Y_trunc)),
         Y_trunc[i,]/num_counts,col = cols[i],type = 'l')
 }
+
+lines(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,lwd = 2)
 if(save_pics) dev.off()
+
+
+#To predict new d
+#Use draws from X as conditioning values
+#For each draw, draw from conditional normal - so N*500k cond. normal draws
+#Do this for each X_n?
+cov_inv_mats <-  vector("list",N)
+inv_vec_mult <- array(0,dim=c(dim(X_thin)))#T x N x I
+
+for(n in 1:N){
+  cov_inv_mats[[n]] <- vector("list",dim(X_thin)[1])
+  for(t in 1:dim(X_thin)[1]){
+    lam_nt <- hope_i$lam[t,n]
+    ell_nt <- hope_i$ell[t,n]
+    cov_inv_mats[[n]][[t]] <- solve(GP_cov(d_scaled,lambda = lam_nt,ell = ell_nt,nugget = 1E-6))
+    inv_vec_mult[t,n,] <- cov_inv_mats[[n]][[t]]%*%X_thin[t,n,]
+  }
+}
+
+pred_x <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats,
+                   sig_inv_x = inv_vec_mult, verbose = FALSE){
+  #Loop through N components, collect values
+  #500k x 9 matrix
+  
+  n_iters <- dim(X)[1]
+  pred_components <- matrix(0,n_iters,N)
+  
+  
+  for(n in 1:N){
+    pred_mean <- pred_var <- dim(X)[1]
+    time_start <- proc.time()
+    for(t in 1:n_iters){
+      #sig_22_inv <- sig_22_inv_list[[n]][[t]]
+      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam[t,n],ell = ell[t,n]))
+      
+      pred_mean[t] <- sig_12%*%inv_vec_mult[t,n,]
+      #pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
+      #if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
+      
+    }
+    
+    
+    #pred_components[,n] <- rnorm(n_iters,pred_mean,sqrt(pred_var))
+    pred_components[,n] <- pred_mean
+    
+  }
+  
+  return(pred_components)
+}
+
+system.time(X_pred <- pred_x(X=X_thin, d_prime = d_new_s, d_cond = d_scaled,lam = hope_i$lam, 
+                             ell = hope_i$ell))
+
 
 #Now lets plot our estiamtes
 #Doesn't vary more than the 95% confidence intervals
@@ -482,6 +541,9 @@ for(i in 2:I){
   lines(as.numeric(colnames(Y_trunc)),
         apply(est_probs_i(X[,,i]),1,mean),col = cols[i],type = 'l')
 }
+
+lines(as.numeric(colnames(Y_trunc)),apply(est_probs_i(Y_pred),1,mean),
+      lwd = 2)
 if(save_pics) dev.off() 
 
 ##Drawing from prior
@@ -509,53 +571,4 @@ while(bad_p){
 
 
 
-#To predict new d
-#Use draws from X as conditioning values
-#For each draw, draw from conditional normal - so N*500k cond. normal draws
-#Do this for each X_n?
-cov_inv_mats <-  vector("list",N)
-inv_vec_mult <- array(0,dim=c(dim(X_thin)))#T x N x I
 
-for(n in 1:N){
-  cov_inv_mats[[n]] <- vector("list",dim(X_thin)[1])
-  for(t in 1:dim(X_thin)[1]){
-    lam_nt <- hope_i$lam[t,n]
-    ell_nt <- hope_i$ell[t,n]
-    cov_inv_mats[[n]][[t]] <- solve(GP_cov(d_scaled,lambda = lam_nt,ell = ell_nt,nugget = 1E-6))
-    inv_vec_mult[t,n,] <- cov_inv_mats[[n]][[t]]%*%X_thin[t,n,]
-  }
-}
-
-pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats,
-                   sig_inv_x = inv_vec_mult, verbose = FALSE){
-  #Loop through N components, collect values
-  #500k x 9 matrix
-  
-  n_iters <- dim(X)[1]
-  pred_components <- matrix(0,n_iters,N)
-  
-  
-  for(n in 1:N){
-    pred_mean <- pred_var <- dim(X)[1]
-    time_start <- proc.time()
-    for(t in 1:n_iters){
-      sig_22_inv <- sig_22_inv_list[[n]][[t]]
-      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam[t,n],ell = ell[t,n]))
-      
-      pred_mean[t] <- sig_12%*%inv_vec_mult[t,n,]
-      #pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
-      #if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
-      
-    }
-    
-    
-    #pred_components[,n] <- rnorm(n_iters,pred_mean,sqrt(pred_var))
-    pred_components[,n] <- pred_mean
-    
-  }
-
-  return(pred_components)
-}
-
-system.time(test <- pred_p(X=X_thin, d_prime = 0.5, d_cond = d_scaled,lam = hope_i$lam, 
-               ell = hope_i$ell))
