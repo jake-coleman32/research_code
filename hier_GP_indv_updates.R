@@ -513,7 +513,8 @@ while(bad_p){
 #Use draws from X as conditioning values
 #For each draw, draw from conditional normal - so N*500k cond. normal draws
 #Do this for each X_n?
-cov_inv_mats <- vector("list",N)
+cov_inv_mats <-  vector("list",N)
+inv_vec_mult <- array(0,dim=c(dim(X_thin)))#T x N x I
 
 for(n in 1:N){
   cov_inv_mats[[n]] <- vector("list",dim(X_thin)[1])
@@ -521,10 +522,12 @@ for(n in 1:N){
     lam_nt <- hope_i$lam[t,n]
     ell_nt <- hope_i$ell[t,n]
     cov_inv_mats[[n]][[t]] <- solve(GP_cov(d_scaled,lambda = lam_nt,ell = ell_nt,nugget = 1E-6))
+    inv_vec_mult[t,n,] <- cov_inv_mats[[n]][[t]]%*%X_thin[t,n,]
   }
 }
 
-pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats, verbose = FALSE){
+pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats,
+                   sig_inv_x = inv_vec_mult, verbose = FALSE){
   #Loop through N components, collect values
   #500k x 9 matrix
   
@@ -539,19 +542,15 @@ pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv
       sig_22_inv <- sig_22_inv_list[[n]][[t]]
       sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam[t,n],ell = ell[t,n]))
       
-      pred_mean[t] <- sig_12%*%(sig_22_inv%*%X[t,n,])
-      pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
-      if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
+      pred_mean[t] <- sig_12%*%inv_vec_mult[t,n,]
+      #pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
+      #if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
       
-      if(!t%%1000 & verbose){
-        flush.console()
-        cat("\r t = ", t, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
-      }
     }
     
     
-    pred_components[,n] <- rnorm(t,pred_mean,sqrt(pred_var))
-    #pred_components[,n] <- pred_mean
+    #pred_components[,n] <- rnorm(n_iters,pred_mean,sqrt(pred_var))
+    pred_components[,n] <- pred_mean
     
   }
 
@@ -560,5 +559,3 @@ pred_p <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv
 
 system.time(test <- pred_p(X=X_thin, d_prime = 0.5, d_cond = d_scaled,lam = hope_i$lam, 
                ell = hope_i$ell))
-
-#But can't do this for calibration - take posterior means? or MAP?
