@@ -73,11 +73,15 @@ if(jitter){
 }
 b <- (alpha - lag(alpha))[-1]
 
+
 #Parameter things
 r <- 0.5
 N <- (J-1) #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
-r_vec <- c(r^(1:floor(N/2)),r^(1:ceiling(N/2)))
+Nz <- 1:floor(N/2)
+Nw <- 1:ceiling(N/2)
+r_vec <- c(r^Nz,r^Nw)
+#r_vec <- c(Nz*r^Nz,Nw*r^Nw)
 R <- diag(r_vec)
 
 make_coefs <- function(){
@@ -350,11 +354,9 @@ save(blah,file = "didnt_stop.Rdata")
 
 X <- hope_i$X
 
-x_means <- apply(X,c(2,3),mean)
-x_means - X_mle
-
 #Extra burnin if necessary
-extra_burn = min(which(X[,9,]<(-1)))
+#extra_burn = min(which(X[,9,]<(-1)))
+extra_burn = 1
 X_burn <- X[extra_burn:dim(X)[1],,]
 lam_burn <- hope_i$lam[extra_burn:dim(X)[1],]
 ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
@@ -372,17 +374,14 @@ X_i <- X_thin[,,i]
 
 plot_traces(X_i,save_pics = FALSE)
 
-gam=1
-T_out=seq(0,t_star,length=75)
-plot_dens_i(X_i,save_pics = FALSE)
-plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
+
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_9/'
+meeting_folder <- 'meeting_3_16/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
-suffix = '_holdout_0start'
+suffix = '_holdout_rnton'
 
 
 
@@ -422,19 +421,38 @@ plot_thetas <- function(save_pics = FALSE){
 
 plot_thetas(save_pics = FALSE)
 
+gam=1
+T_out=seq(0,t_star,length=101)
+plot_dens_i(X_pred,save_pics = FALSE)
+plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
 
-est_dens_i <- function(x_mat, r){
+est_dens_i <- function(x_mat, r=0.5){
   f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
   Nx <- dim(x_mat)[2]
   for(t in 1:length(T_out)){
-    cos_vec <- cos(2*pi*T_out[t]*(1:floor(Nx/2))/t_star)*r^(1:floor(Nx/2))
-    sin_vec <- sin(2*pi*T_out[t]*(1:ceiling(Nx/2))/t_star)*r^(1:ceiling(Nx/2))
-    cos_sin_vec <- c(cos_vec,sin_vec)
+    cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)
+    sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)
+    cos_sin_vec <- c(cos_vec,sin_vec)*r_vec
     
     f_mat[,t] <- sqrt(2)*t(matrix(cos_sin_vec))%*%t(x_mat) + gam/t_star
   }
   return(f_mat)
 }
+
+
+
+
+
+new_t <- vector("list",J)
+pred_dens <- est_dens_i(X_pred,r=0.5)
+pred_ps <- numeric(J)
+for(a in 1:(length(alpha)-1)){
+  new_t <- which(T_out>=alpha[a]&T_out<alpha[a+1])
+  if(a ==J){new_t = c(new_t,which(T_out==alpha[a+1]))}
+  pred_ps[a] <- apply(pred_dens[,new_t],1,function(x){trapz(T_out[new_t],x)})%>%
+    mean()
+}
+plot(pred_ps)
 
 
 plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',...){
@@ -519,7 +537,7 @@ system.time(X_pred <- pred_x(X=X_thin, d_prime = d_new_s, d_cond = d_scaled,lam 
 if(save_pics) pdf(paste0(path,'pred_comp',suffix,'.pdf'))
 plot(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
      cex = 0.9, ylim = c(min(apply(est_probs_i(X_pred),1,quantile,probs = 0.025)),
-                         max(apply(est_probs_i(X_pred),1,quantile,probs = 0.975))),main = 'Predicted Bin Probabilities',
+                         max(apply(est_probs_i(X_pred),1,quantile,probs = 0.975))),main = 'Predicted Bin Probabilities - Full Model',
      xlab = 'Bin',ylab = 'Predicted Probability',col = rgb(1,0,0,0.3),pch = 19,
      las = 1)
 arrows(as.numeric(colnames(Y_trunc)), apply(est_probs_i(X_pred),1,quantile,probs = 0.025),
@@ -537,7 +555,7 @@ plot(as.numeric(colnames(Y_trunc)),
      cex = 0.9, 
      ylim = c(min(apply(est_probs_i(X_pred) - Y_new_trunc/num_counts,1,quantile,probs = 0.025)),
               max(apply(est_probs_i(X_pred) - Y_new_trunc/num_counts,1,quantile,probs = 0.975))),
-     main = bquote(A[j]~'Bin Probability Residuals'),
+     main = bquote(A[j]~'Bin Probability Residuals - Full Model'),
      xlab = bquote(A[j]~'Bin'),ylab = 'Residual',col = rgb(1,0,0,0.7),pch = 19,
      las = 1, yaxt = 'n')
 axis(2, at=c(-0.004,0,0.004),las = 1,labels = FALSE)
@@ -548,18 +566,6 @@ arrows(as.numeric(colnames(Y_trunc)),apply(sweep(est_probs_i(X_pred),1,Y_new_tru
 abline(h = 0, col = rgb(0,0,1,0.7))
 if(save_pics) dev.off()
 
-#Attempt #2
-plot(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
-     cex = 0.4, ylim = c(0,max(X_pred)),main = 'Predicted Bin Probabilities',
-     xlab = 'Bin',ylab = 'Predicted Probability',type = 'l')
-lines(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,quantile,probs = 0.025),
-      lty = 2,col = 'blue')
-lines(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,quantile,probs = 0.975),
-      lty = 2,col = 'blue')
-points(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,
-       col = 'red',cex = 0.5,pch = 19)
-legend('bottomright',c('Truth','Prediction','95% Cred Int'),col = c('red','black','blue'),
-       lty = c(NA,1,2),pch = c(19,NA,NA))
 
 #Ok let's plot all data points
 cols = rainbow(I)
