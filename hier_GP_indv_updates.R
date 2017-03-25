@@ -3,7 +3,8 @@
 library(TruncatedNormal)
 library(mvtnorm)
 library(dplyr)
-
+library(caTools)
+library(Matrix)
 
 
 GP_cov <- function(d,lambda,ell,nugget = 0.){
@@ -75,32 +76,36 @@ b <- (alpha - lag(alpha))[-1]
 
 
 #Parameter things
-r <- 0.5
+r <- 0.1
 N <- (J-1) #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 Nz <- 1:floor(N/2)
 Nw <- 1:ceiling(N/2)
-r_vec <- c(r^Nz,r^Nw)
+
+c <- 0.1
+pnorm(-1/(2*c*r^2/(1-r^2)))
+r_vec <- c(c*r^Nz,c*r^Nw)
 #r_vec <- c(Nz*r^Nz,Nw*r^Nw)
+#r_vec <- c((r^Nz)/Nz^2,(r^Nw)/Nw^2)
 R <- diag(r_vec)
 
 make_coefs <- function(){
-  A <- matrix(0,floor(N/2),J)
-  B <- matrix(0,ceiling(N/2),J)
-  for(n in 1:floor((N/2))){
-    for(j in 2:(J+1)){
-      A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
-      B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
-    }
+A <- matrix(0,floor(N/2),J)
+B <- matrix(0,ceiling(N/2),J)
+for(n in 1:floor((N/2))){
+  for(j in 2:(J+1)){
+    A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
+    B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
   }
-  if(N%%2){
-    n = ceiling(N/2)
-    for(j in 2:(J+1)){
-      B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
-    }
+}
+if(N%%2){
+  n = ceiling(N/2)
+  for(j in 2:(J+1)){
+    B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
   }
-  
-  return(list(A=A,B=B))
+}
+
+return(list(A=A,B=B))
 }
 
 A <- make_coefs()$A
@@ -109,9 +114,9 @@ C <- cbind(t(A),t(B))
 
 show_ranks = TRUE
 if(show_ranks){
-  print(paste("A",rankMatrix(t(A))[1]))
-  print(paste("B",rankMatrix(t(B))[1]))
-  print(paste("C",rankMatrix(t(C))[1]))
+print(paste("A",rankMatrix(t(A))[1]))
+print(paste("B",rankMatrix(t(B))[1]))
+print(paste("C",rankMatrix(t(C))[1]))
 }
 
 #Starting place for X
@@ -378,10 +383,10 @@ plot_traces(X_i,save_pics = FALSE)
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_16/'
+meeting_folder <- 'meeting_3_23/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
-suffix = '_holdout_rnton'
+suffix = '_holdout_small_r_c'
 
 
 
@@ -526,9 +531,6 @@ pred_x <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv
 }
 
 
-
-
-
 system.time(X_pred <- pred_x(X=X_thin, d_prime = d_new_s, d_cond = d_scaled,lam = lam_thin, 
                              ell = ell_thin))
 
@@ -616,19 +618,101 @@ if(save_pics) dev.off()
 lam <- rgamma(N,lam_a,lam_b)
 ell <- rgamma(N,ell_a,ell_b)
 
+c= 1
+r=0.3
+Nz <- 1:floor(N/2)
+Nw <- 1:ceiling(N/2)
+r_vec <- c*c(r^Nz,r^Nw)
+
 how_many=0
 bad_p = TRUE
+tries = 0
 while(bad_p){
-  how_many = how_many + 1
   X_prior <- matrix(0,N,I)
   for(n in 1:N){
-    X_prior[n,] <- rmvnorm(1,sigma = GP_cov(d_scaled,lam[n],ell[n]))
+    X_prior[n,] <- rmvnorm(1,sigma = GP_cov(d_scaled,lam[n],ell[n],nugget = 1E-6))
   }
+  X_prior <- matrix(rnorm(N*I),ncol = I)
   
-  P <- sqrt(2)*C%*%sweep(X_prior,1,r_vec) + replicate(I,b/t_star)
-  if(!(sum(P)>0)) bad_p=FALSE
+
+  P <- sqrt(2)*C%*%sweep(X_prior,1,r_vec,FUN = "*") + replicate(I,b/t_star)
+  if(!(sum(P<0))) bad_p=FALSE
+  if((tries <- tries + 1)>1E4) break
+}
+tries
+apply(P,2,sum)
+cols <- rainbow(dim(P)[2])
+plot(P[,1])
+for(i in 1:dim(P)[2]){
+  points(P[,i],col = cols[i])
 }
 
+#Drawing f directly
+draw_f <- function(num,c,r=0.5,t_star = 0.5,save_pics = FALSE){
+  cols = rainbow(num)
+  for(k in 1:num){
+    X <- rnorm(N)
+    #X <- X_i[1,]
+    T_out <-  seq(0,t_star,length = 101)
+    f <- numeric(length(T_out))
+    Nz <- 1:floor(N/2)
+    Nw <- 1:ceiling(N/2)
+    r_vec <- c*c(r^Nz,r^Nw)
+    
+    v_0 <- 2*c^2*r^2/(1-r^2)
+    plot_top <- 1/t_star  +2*sqrt(v_0)+ 0.1
+    plot_bot <- 1/t_star-2*sqrt(v_0) - 0.1
+
+    
+    for(t in 1:length(T_out)){
+      cos_vec <- cos(2*pi*Nz*T_out[t]/t_star)
+      sin_vec <- sin(2*pi*Nw*T_out[t]/t_star)
+      trig_vec <- sqrt(2)*r_vec*c(cos_vec,sin_vec)
+      f[t] <- trig_vec%*%X + 1/t_star
+    }
+    
+    
+    if(k==1){
+      if(save_pics) pdf(paste0(path,"prior_path_",c,"_",r,'.pdf'))
+      plot(T_out,f,type = 'l',col = cols[k], ylim = c(plot_bot,plot_top),
+           main = paste0("Sample paths with c = ",c,", r = ",r),
+           xlab = 't')
+    }else{
+      lines(T_out,f,type = 'l',col = cols[k])
+      if(k==num){
+        abline(h = plot_top-0.1,lty = 2)
+        abline(h = plot_bot+0.1,lty = 2)
+        if(save_pics) dev.off()
+      } 
+    }
+    print(trapz(T_out,f))
+  }    
 
 
+  invisible(f)
+}
+test <- draw_f(num=5,c=1, r=0.1,t_star=0.5, save_pics = FALSE)
 
+
+new_t <- vector("list",J)
+pred_ps <- numeric(J)
+for(a in 1:(length(alpha)-1)){
+  new_t <- which(T_out>=alpha[a]&T_out<alpha[a+1])
+  if(a ==J){new_t = c(new_t,which(T_out==alpha[a+1]))}
+  pred_ps[a] <- trapz(T_out[new_t],test[new_t])
+}
+plot(pred_ps)
+
+
+sig_to_c <- function(sig,r=0.5){
+  return(sig*sqrt(1-r^2)/sqrt(2*r^2))
+}
+c_to_sig <- function(c,r=0.5){
+  return(c*sqrt(2*r^2/(1-r^2)))
+}
+sqrt(2*c^2*r^2/(1-r^2))
+(c*sqrt(2)*r/sqrt(1-r^2))^2
+prior_prob <- function(c,r){
+  return(pnorm(-1/(c*sqrt(2)*r/sqrt(1-r^2))))
+}
+prior_prob(0.05,.99)
