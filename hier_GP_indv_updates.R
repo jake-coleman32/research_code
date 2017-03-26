@@ -1,6 +1,6 @@
 #Hierarchical GP
 #Individual updates
-library(TruncatedNormal)
+library(truncnorm)
 library(mvtnorm)
 library(dplyr)
 library(caTools)
@@ -39,25 +39,23 @@ read_hist_data <- function(hist_loc, q_file){
   
 }
 
-jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT"
+jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT/"
 jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
-on_comp = FALSE
+on_comp = TRUE
 #Create new directory based on date/time, change to it
 if(on_comp){
   model_time = Sys.time()
-  dir.create(paste0(jet_path_comp,'/',model_time))
-  setwd(paste0(model_time))
+  new_dir = paste0(jet_path_comp,'/',model_time)
+  dir.create(new_dir)
+  setwd(new_dir)
 }else{
   stop('Fix boolean')
 }
 
-hello
 
-
-
-current_path = jet_path_lap
+current_path = jet_path_comp
 
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
@@ -165,7 +163,7 @@ params$C <- C
 #Save the parameters to use later
 save(params,file = "params_list.Rdata")
 
-run_description <- "r_vec is c*r^n, with r close to 1. Lambda is fixed at 1. More parameters than bins"
+run_description <- "r_vec is c*r^n, with r =0.5,c=1. Lambda is fixed at 1. Checking new code structure "
 write(run_description,file="model_description.txt")
 
 
@@ -387,7 +385,7 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-hope_i <- hier_gp_mh_i(iters = 1E3,verbose = TRUE, burnin_prop = 0.3,
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.3,
                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
                          rep(1E-1,I),#1
                          rep(1E-1,I),#2
@@ -400,15 +398,9 @@ hope_i <- hier_gp_mh_i(iters = 1E3,verbose = TRUE, burnin_prop = 0.3,
                          rep(1E-1,I))) #9
 )
 
-hope_i$x_acc
-apply(hope_i$x_acc,1,mean)
 
-hope_i$lam_acc
-hope_i$ell_acc
+save(hope, file = "sampler_vals.Rdata")
 
-save(hope, file = "run_1k.Rdata")
-
-save()
 
 
 
