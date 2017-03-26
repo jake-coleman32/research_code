@@ -43,6 +43,20 @@ jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAP
 jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
+on_comp = FALSE
+#Create new directory based on date/time, change to it
+if(on_comp){
+  model_time = Sys.time()
+  dir.create(paste0(jet_path_comp,'/',model_time))
+  setwd(paste0(model_time))
+}else{
+  stop('Fix boolean')
+}
+
+hello
+
+
+
 current_path = jet_path_lap
 
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
@@ -64,6 +78,20 @@ trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
 Y_new_trunc <- Y_new[trunc_cols]
 
+#data and parameters
+data <- list()
+data$num_counts <- num_counts
+data$holdout <- holdout
+data$Y <- Y
+data$Y_new <- Y_new
+data$Y_trunc <- Y_trunc
+data$Y_new_trunc <- Y_new_trunc
+data$t_star <- t_star
+data$d_scaled <- d_scaled
+data$d_new_s <- d_new_s
+data$trunc_cols <-trunc_cols
+
+
 
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
@@ -74,20 +102,40 @@ if(jitter){
 }
 b <- (alpha - lag(alpha))[-1]
 
+data$I <- I
+data$J <- J
+data$alpha <- alpha
+data$b <- b
+
+#Save the list of data objects 
+save_data = FALSE #Change this if you change something
+if(save_data){
+  save(data, file = "data_list.Rdata")
+}
 
 #Parameter things
-r <- 0.1
+params <- list()
+
+r <- 0.5
 N <- (J-1) #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 Nz <- 1:floor(N/2)
 Nw <- 1:ceiling(N/2)
 
-c <- 0.1
-pnorm(-1/(2*c*r^2/(1-r^2)))
+c <- 1
+r^max(Nw)
+pnorm(-1/sqrt((2*c*r^2/(1-r^2))))
 r_vec <- c(c*r^Nz,c*r^Nw)
 #r_vec <- c(Nz*r^Nz,Nw*r^Nw)
 #r_vec <- c((r^Nz)/Nz^2,(r^Nw)/Nw^2)
 R <- diag(r_vec)
+
+params$c <- c
+params$N <- N
+params$r <- r
+params$Nz <- Nz
+params$Nw <- Nw
+params$r_vec <- r_vec
 
 make_coefs <- function(){
 A <- matrix(0,floor(N/2),J)
@@ -112,6 +160,16 @@ A <- make_coefs()$A
 B <- make_coefs()$B
 C <- cbind(t(A),t(B))
 
+params$C <- C
+
+#Save the parameters to use later
+save(params,file = "params_list.Rdata")
+
+run_description <- "r_vec is c*r^n, with r close to 1. Lambda is fixed at 1. More parameters than bins"
+write(run_description,file="model_description.txt")
+
+
+#Check the ranks of our coefficient matrices
 show_ranks = TRUE
 if(show_ranks){
 print(paste("A",rankMatrix(t(A))[1]))
@@ -143,7 +201,7 @@ ell_b <- rep(1,N)
 
 
 hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
-                         delta_lam = rep(0.3,N),
+                         delta_lam = rep(0,N),
                          delta_ell = rep(0.3,N),
                          X_kap = replicate(N,rep(1E-1,I)), #column n is diagonal of proposal
                          #for GP n
@@ -157,7 +215,7 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
   #Current values
   X_cur <- X_mle #currently N x I
   ell_cur <- rgamma(N,ell_a,ell_b)
-  lam_cur <- rgamma(N,lam_a,lam_b)
+  lam_cur <- rep(1,N)
   
   p_cur <- t(sqrt(2)*C%*%sweep(X_cur,1,r_vec,"*") + replicate(I,b/t_star))
   l_cur <- sum(Y_trunc*log(p_cur))# + sum(Y_trunc[,j_trim]*log(1-apply(p_cur,1,sum)))
@@ -331,13 +389,13 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
 
 hope_i <- hier_gp_mh_i(iters = 1E3,verbose = TRUE, burnin_prop = 0.3,
                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
-                         rep(1E-3,I),#1
-                         rep(1E-3,I),#2
-                         rep(1E-3,I), #3
-                         rep(1E-2,I), #4
-                         rep(1E-3,I),#5
-                         rep(1E-3,I),#6
-                         rep(1E-2,I),#7
+                         rep(1E-1,I),#1
+                         rep(1E-1,I),#2
+                         rep(1E-1,I), #3
+                         rep(1E-1,I), #4
+                         rep(1E-1,I),#5
+                         rep(1E-1,I),#6
+                         rep(1E-1,I),#7
                          rep(1E-1,I),#8
                          rep(1E-1,I))) #9
 )
@@ -350,369 +408,7 @@ hope_i$ell_acc
 
 save(hope, file = "run_1k.Rdata")
 
-stop("We're done here")
-
-blah = 1:5
-save(blah,file = "didnt_stop.Rdata")
-#summaryRprof('Hope_against_hope.out')
-
-
-X <- hope_i$X
-
-#Extra burnin if necessary
-#extra_burn = min(which(X[,9,]<(-1)))
-extra_burn = 1
-X_burn <- X[extra_burn:dim(X)[1],,]
-lam_burn <- hope_i$lam[extra_burn:dim(X)[1],]
-ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
-
-#Thinning if necessary
-thin = 500
-iters <- 1:dim(X_burn)[1]
-X_thin <- X_burn[!iters%%thin,,]
-lam_thin <- lam_burn[!iters%%thin,]
-ell_thin <- ell_burn[!iters%%thin,]
-
-#Which in-sample histogram to look at
-i <- 4
-X_i <- X_thin[,,i]
-
-plot_traces(X_i,save_pics = FALSE)
+save()
 
 
 
-
-meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_23/'
-path <- paste0(meeting_parent,meeting_folder)
-save_pics = FALSE
-suffix = '_holdout_small_r_c'
-
-
-
-
-plot_traces <- function(x_hist,save_pics = FALSE){
-  
-  for(n in 1:N){
-    if(n<ceiling(N/2)){
-      var_type = 'Z'
-      index = n
-    }
-    else{
-      var_type = 'W'
-      index = n-floor(N/2)
-    }
-    if(save_pics) pdf(paste0(path,var_type,n,suffix,'.pdf'))
-    plot(x_hist[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
-         main = bquote('Trace Plot of '~.(var_type)[.(index)]~', Histogram'~.(i)),
-         xlab = 'Iteration')
-    if(save_pics) dev.off()
-  }
-}
-
-plot_thetas <- function(save_pics = FALSE){
-  for(n in 1:N){
-    if(save_pics) pdf(file = paste0(path,'lam',n,suffix,'.pdf'))
-    plot(lam_thin[,n],xlab = "Iteration",ylab = bquote(lambda[.(n)]),type = 'l',
-         main = bquote('Trace Plot of '~lambda[.(n)]))
-    if(save_pics) dev.off()
-    
-    if(save_pics) pdf(file = paste0(path,'ell',n,suffix,'.pdf'))
-    plot(ell_thin[,n],xlab = "Iteration",ylab = bquote('ell'[.(n)]),type = 'l',
-         main = bquote('Trace Plot of ell'[.(n)]))
-    if(save_pics) dev.off()
-  }
-}
-
-plot_thetas(save_pics = FALSE)
-
-gam=1
-T_out=seq(0,t_star,length=101)
-plot_dens_i(X_pred,save_pics = FALSE)
-plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
-
-est_dens_i <- function(x_mat, r=0.5){
-  f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
-  Nx <- dim(x_mat)[2]
-  for(t in 1:length(T_out)){
-    cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)
-    sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)
-    cos_sin_vec <- c(cos_vec,sin_vec)*r_vec
-    
-    f_mat[,t] <- sqrt(2)*t(matrix(cos_sin_vec))%*%t(x_mat) + gam/t_star
-  }
-  return(f_mat)
-}
-
-
-
-
-
-new_t <- vector("list",J)
-pred_dens <- est_dens_i(X_pred,r=0.5)
-pred_ps <- numeric(J)
-for(a in 1:(length(alpha)-1)){
-  new_t <- which(T_out>=alpha[a]&T_out<alpha[a+1])
-  if(a ==J){new_t = c(new_t,which(T_out==alpha[a+1]))}
-  pred_ps[a] <- apply(pred_dens[,new_t],1,function(x){trapz(T_out[new_t],x)})%>%
-    mean()
-}
-plot(pred_ps)
-
-
-plot_dens_i <- function(x_mat,r=0.5, save_pics = FALSE,legend_side = 'topright',...){
-  f_est <- est_dens_i(x_mat,r)
-  mean_est <- apply(f_est,2,mean)
-  
-  if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
-  plot(T_out,mean_est,type = 'l', main = 'GP Density Estimate',
-       ylab = 'Density',xlab = 'y',lwd = 2,
-       ylim = c(0,max(apply(f_est,2,quantile,0.975))),
-       ...)#,ylim = c(0,2))
-  lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
-  lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
-  # legend(legend_side,c('Post Mean','Post 95% Cred'),
-  #       lwd = 2,lty = c(1,2),col = c('black','blue'))
-  if(save_pics) dev.off()
-}
-
-
-est_probs_i <- function(X_i,save_pics = FALSE){
-  p_out <- sqrt(2)*C%*%sweep(t(X_i),1,r_vec,FUN = "*") + b/t_star
-  return(p_out)
-}
-
-#To predict new d
-#Use draws from X as conditioning values
-#For each draw, draw from conditional normal - so N*500k cond. normal draws
-#Do this for each X_n?
-cov_inv_mats <-  vector("list",N)
-inv_vec_mult <- array(0,dim=c(dim(X_thin)))#T x N x I
-
-for(n in 1:N){
-  cov_inv_mats[[n]] <- vector("list",dim(X_thin)[1])
-  for(t in 1:dim(X_thin)[1]){
-    lam_nt <- lam_thin[t,n]
-    ell_nt <- ell_thin[t,n]
-    cov_inv_mats[[n]][[t]] <- solve(GP_cov(d_scaled,lambda = lam_nt,ell = ell_nt,nugget = 1E-6))
-    inv_vec_mult[t,n,] <- cov_inv_mats[[n]][[t]]%*%X_thin[t,n,]
-  }
-}
-
-pred_x <- function(X,d_prime, d_cond=d_scaled,lam,ell, sig_22_inv_list = cov_inv_mats,
-                   sig_inv_x = inv_vec_mult, verbose = FALSE){
-  #Loop through N components, collect values
-  #500k x 9 matrix
-  
-  n_iters <- dim(X)[1]
-  pred_components <- matrix(0,n_iters,N)
-  
-  
-  for(n in 1:N){
-    pred_mean <- pred_var <- dim(X)[1]
-    time_start <- proc.time()
-    for(t in 1:n_iters){
-      sig_22_inv <- sig_22_inv_list[[n]][[t]]
-      sig_12 <- t(GP_cross_cov(d_cond, d_prime,lambda = lam[t,n],ell = ell[t,n]))
-      
-      pred_mean[t] <- sig_12%*%inv_vec_mult[t,n,]
-      pred_var[t] <- 1/lam[t,n] - sig_12%*%sig_22_inv%*%t(sig_12)
-      if(pred_var[t]<0)stop(paste("pred_var is",pred_var[t],"nt is",n,t)) 
-      
-    }
-    
-    
-    pred_components[,n] <- rnorm(n_iters,pred_mean,sqrt(pred_var))
-    #pred_components[,n] <- pred_mean
-    
-  }
-  
-  return(pred_components)
-}
-
-
-system.time(X_pred <- pred_x(X=X_thin, d_prime = d_new_s, d_cond = d_scaled,lam = lam_thin, 
-                             ell = ell_thin))
-
-
-#Predicted Comparison
-if(save_pics) pdf(paste0(path,'pred_comp',suffix,'.pdf'))
-plot(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
-     cex = 0.9, ylim = c(min(apply(est_probs_i(X_pred),1,quantile,probs = 0.025)),
-                         max(apply(est_probs_i(X_pred),1,quantile,probs = 0.975))),main = 'Predicted Bin Probabilities - Full Model',
-     xlab = 'Bin',ylab = 'Predicted Probability',col = rgb(1,0,0,0.3),pch = 19,
-     las = 1)
-arrows(as.numeric(colnames(Y_trunc)), apply(est_probs_i(X_pred),1,quantile,probs = 0.025),
-       as.numeric(colnames(Y_trunc)), apply(est_probs_i(X_pred),1,quantile,probs = 0.975), length=0.05, angle=90, code=3)
-points(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,
-       col = rgb(0,0,1,0.3),cex = 0.8,pch = 19)
-legend('bottomright',c('Predicted','Truth'),col = c(rgb(1,0,0,0.3),rgb(0,0,1,0.3)),pch = 19,
-       pt.cex = c(0.9,0.8))
-if(save_pics) dev.off()
-
-#Predicted Residuals
-if(save_pics) pdf(paste0(path,'pred_resid',suffix,'.pdf'))
-plot(as.numeric(colnames(Y_trunc)),
-     apply(est_probs_i(X_pred),1,mean) - Y_new_trunc/num_counts,
-     cex = 0.9, 
-     ylim = c(min(apply(est_probs_i(X_pred) - Y_new_trunc/num_counts,1,quantile,probs = 0.025)),
-              max(apply(est_probs_i(X_pred) - Y_new_trunc/num_counts,1,quantile,probs = 0.975))),
-     main = bquote(A[j]~'Bin Probability Residuals - Full Model'),
-     xlab = bquote(A[j]~'Bin'),ylab = 'Residual',col = rgb(1,0,0,0.7),pch = 19,
-     las = 1, yaxt = 'n')
-axis(2, at=c(-0.004,0,0.004),las = 1,labels = FALSE)
-text(y=c(-0.004,0,0.004),par("usr")[1],labels = c(-0.004,0,0.004),pos = 2,xpd = TRUE)
-
-arrows(as.numeric(colnames(Y_trunc)),apply(sweep(est_probs_i(X_pred),1,Y_new_trunc/num_counts,FUN = "-"),1,quantile,probs = 0.025),
-       as.numeric(colnames(Y_trunc)), apply(sweep(est_probs_i(X_pred),1,Y_new_trunc/num_counts,FUN = "-"),1,quantile,probs = 0.975), length=0.05, angle=90, code=3)
-abline(h = 0, col = rgb(0,0,1,0.7))
-if(save_pics) dev.off()
-
-
-#Ok let's plot all data points
-cols = rainbow(I)
-
-if(save_pics) pdf(file = paste0(path,'all_data',suffix,'.pdf'))
-plot(as.numeric(colnames(Y_trunc)),
-     Y_trunc[1,]/num_counts,col = cols[1],type = 'l',
-     xlab = 'Aj',
-     ylab = 'Fraction of Bin',
-     main = 'Data Across Input')
-for(i in 2:I){
-  lines(as.numeric(colnames(Y_trunc)),
-        Y_trunc[i,]/num_counts,col = cols[i],type = 'l')
-}
-
-lines(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,lwd = 2)
-legend('bottomright','Out of Sample Histgram',lwd = 2)
-if(save_pics) dev.off()
-
-
-
-
-#Now lets plot our estiamtes
-#Doesn't vary more than the 95% confidence intervals
-if(save_pics) pdf(file = paste0(path,'all_emulations',suffix,'.pdf'))
-plot(as.numeric(colnames(Y_trunc)),
-     apply(est_probs_i(X_thin[,,1]),1,mean),col = cols[1],type = 'l',
-     xlab = 'Aj',
-     ylab = 'Probability of Bin',
-     main = 'Emulated Values Across Input')
-for(i in 2:I){
-  lines(as.numeric(colnames(Y_trunc)),
-        apply(est_probs_i(X_thin[,,i]),1,mean),col = cols[i],type = 'l')
-}
-
-lines(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
-      lwd = 2)
-legend('bottomright','Out of Sample Prediction',lwd = 2)
-if(save_pics) dev.off() 
-
-##Drawing from prior
-
-#Draw lamda, ell
-#Draw N GP realizations
-#Keep if none of the P's are negative
-##There is no chance of this happening
-
-lam <- rgamma(N,lam_a,lam_b)
-ell <- rgamma(N,ell_a,ell_b)
-
-c= 1
-r=0.3
-Nz <- 1:floor(N/2)
-Nw <- 1:ceiling(N/2)
-r_vec <- c*c(r^Nz,r^Nw)
-
-how_many=0
-bad_p = TRUE
-tries = 0
-while(bad_p){
-  X_prior <- matrix(0,N,I)
-  for(n in 1:N){
-    X_prior[n,] <- rmvnorm(1,sigma = GP_cov(d_scaled,lam[n],ell[n],nugget = 1E-6))
-  }
-  X_prior <- matrix(rnorm(N*I),ncol = I)
-  
-
-  P <- sqrt(2)*C%*%sweep(X_prior,1,r_vec,FUN = "*") + replicate(I,b/t_star)
-  if(!(sum(P<0))) bad_p=FALSE
-  if((tries <- tries + 1)>1E4) break
-}
-tries
-apply(P,2,sum)
-cols <- rainbow(dim(P)[2])
-plot(P[,1])
-for(i in 1:dim(P)[2]){
-  points(P[,i],col = cols[i])
-}
-
-#Drawing f directly
-draw_f <- function(num,c,r=0.5,t_star = 0.5,save_pics = FALSE){
-  cols = rainbow(num)
-  for(k in 1:num){
-    X <- rnorm(N)
-    #X <- X_i[1,]
-    T_out <-  seq(0,t_star,length = 101)
-    f <- numeric(length(T_out))
-    Nz <- 1:floor(N/2)
-    Nw <- 1:ceiling(N/2)
-    r_vec <- c*c(r^Nz,r^Nw)
-    
-    v_0 <- 2*c^2*r^2/(1-r^2)
-    plot_top <- 1/t_star  +2*sqrt(v_0)+ 0.1
-    plot_bot <- 1/t_star-2*sqrt(v_0) - 0.1
-
-    
-    for(t in 1:length(T_out)){
-      cos_vec <- cos(2*pi*Nz*T_out[t]/t_star)
-      sin_vec <- sin(2*pi*Nw*T_out[t]/t_star)
-      trig_vec <- sqrt(2)*r_vec*c(cos_vec,sin_vec)
-      f[t] <- trig_vec%*%X + 1/t_star
-    }
-    
-    
-    if(k==1){
-      if(save_pics) pdf(paste0(path,"prior_path_",c,"_",r,'.pdf'))
-      plot(T_out,f,type = 'l',col = cols[k], ylim = c(plot_bot,plot_top),
-           main = paste0("Sample paths with c = ",c,", r = ",r),
-           xlab = 't')
-    }else{
-      lines(T_out,f,type = 'l',col = cols[k])
-      if(k==num){
-        abline(h = plot_top-0.1,lty = 2)
-        abline(h = plot_bot+0.1,lty = 2)
-        if(save_pics) dev.off()
-      } 
-    }
-    print(trapz(T_out,f))
-  }    
-
-
-  invisible(f)
-}
-test <- draw_f(num=5,c=1, r=0.1,t_star=0.5, save_pics = FALSE)
-
-
-new_t <- vector("list",J)
-pred_ps <- numeric(J)
-for(a in 1:(length(alpha)-1)){
-  new_t <- which(T_out>=alpha[a]&T_out<alpha[a+1])
-  if(a ==J){new_t = c(new_t,which(T_out==alpha[a+1]))}
-  pred_ps[a] <- trapz(T_out[new_t],test[new_t])
-}
-plot(pred_ps)
-
-
-sig_to_c <- function(sig,r=0.5){
-  return(sig*sqrt(1-r^2)/sqrt(2*r^2))
-}
-c_to_sig <- function(c,r=0.5){
-  return(c*sqrt(2*r^2/(1-r^2)))
-}
-sqrt(2*c^2*r^2/(1-r^2))
-(c*sqrt(2)*r/sqrt(1-r^2))^2
-prior_prob <- function(c,r){
-  return(pnorm(-1/(c*sqrt(2)*r/sqrt(1-r^2))))
-}
-prior_prob(0.05,.99)
