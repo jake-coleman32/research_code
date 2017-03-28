@@ -128,26 +128,9 @@ if(save_data){
 #Parameter things
 params <- list()
 
-r <- 0.5
-N <- 6 #One fewer than number of bins: the max number for N
+N <- 14 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
-Nz <- 1:floor(N/2)
-Nw <- 1:ceiling(N/2)
 
-c <- .3
-r^max(Nw)
-pnorm(-1/sqrt((2*c*r^2/(1-r^2))))
-r_vec <- c(c*r^Nz,c*r^Nw)
-#r_vec <- c(Nz*r^Nz,Nw*r^Nw)
-#r_vec <- c((r^Nz)/Nz^2,(r^Nw)/Nw^2)
-R <- diag(r_vec)
-
-params$c <- c
-params$N <- N
-params$r <- r
-params$Nz <- Nz
-params$Nw <- Nw
-params$r_vec <- r_vec
 
 make_coefs <- function(){
 A <- matrix(0,floor(N/2),J)
@@ -158,12 +141,12 @@ for(n in 1:floor((N/2))){
     B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
   }
 }
-if(N%%2){
-  n = ceiling(N/2)
-  for(j in 2:(J+1)){
-    B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
-  }
-}
+# if(N%%2){
+#   n = ceiling(N/2)
+#   for(j in 2:(J+1)){
+#     B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
+#   }
+#}
 
 return(list(A=A,B=B))
 }
@@ -172,12 +155,34 @@ A <- make_coefs()$A
 B <- make_coefs()$B
 C <- cbind(t(A),t(B))
 
+#Adjust because sin(5pint) = 0 for all n
+if(N>=10){
+  C <- C[,-5]
+  N <- N-1
+}
+
+r <- 0.8
+c <- .1
+r^ceiling(N/2)
+pnorm(-1/sqrt((2*c^2*r^2/(1-r^2))))
+
+Nz <- 1:floor(N/2)
+Nw <- 1:ceiling(N/2)
+r_vec <- c(c*r^Nz,c*r^Nw)
+R <- diag(r_vec)
+
+params$c <- c
+params$N <- N
+params$r <- r
+params$Nz <- Nz
+params$Nw <- Nw
+params$r_vec <- r_vec
 params$C <- C
 
 #Save the parameters to use later
 save(params,file = "params_list.Rdata")
 
-run_description <- "r_vec is c*r^n, with r =0.5,c=0.3. N = 6"
+run_description <- "r_vec is c*r^n, with r =0.8,c=0.1. N = 13"
 write(run_description,file="model_description.txt")
 
 
@@ -402,19 +407,20 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.5,
-                       X_kap = matrix(nrow = I, byrow = FALSE,data = c(
-                         rep(1E-1,I),#1
-                         rep(1E-1,I),#2
-                         rep(1E0,I), #3
-                         rep(1E-1,I), #4
-                         rep(1E-1,I),#5
-                         rep(1E0,I)))#,#6
+start_t <- proc.time()
+hope_i <- hier_gp_mh_i(iters = 1.8E5,verbose = TRUE, burnin_prop = 0.1#,
+#                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
+#                          rep(1E-1,I),#1
+#                          rep(1E-1,I),#2
+#                          rep(1E0,I), #3
+#                          rep(1E-1,I), #4
+#                          rep(1E-1,I),#5
+#                          rep(1E0,I)))#,#6
 #                          rep(1E-1,I),#7
 #                          rep(1E-1,I),#8
 #                          rep(1E-1,I))) #9
 )
-
+write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
 
