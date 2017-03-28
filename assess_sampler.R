@@ -1,5 +1,8 @@
 #File to show pictures/look at plots easily
+setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
 
+#Change to what you need
+setwd('2017-03-27 00:30:39/')
 #######################
 #Plot functions
 ##########################
@@ -286,7 +289,7 @@ X_i <- X_thin[,,i]
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_23/'
+meeting_folder <- 'meeting_3_30/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
 suffix = '_holdout_small_r_c'
