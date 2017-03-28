@@ -187,12 +187,9 @@ write(run_description,file="model_description.txt")
 
 
 #Check the ranks of our coefficient matrices
-show_ranks = TRUE
-if(show_ranks){
-print(paste("A",rankMatrix(t(A))[1]))
-print(paste("B",rankMatrix(t(B))[1]))
-print(paste("C",rankMatrix(t(C))[1]))
-}
+print(paste("N =",N))
+print(paste("r =",r))
+print(paste("c =",c))
 
 #Starting place for X
 #Use fact that the sum of probabilities add to one
@@ -408,17 +405,21 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
 }
 
 start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 1.8E5,verbose = TRUE, burnin_prop = 0.1#,
-#                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
-#                          rep(1E-1,I),#1
-#                          rep(1E-1,I),#2
-#                          rep(1E0,I), #3
-#                          rep(1E-1,I), #4
-#                          rep(1E-1,I),#5
-#                          rep(1E0,I)))#,#6
-#                          rep(1E-1,I),#7
-#                          rep(1E-1,I),#8
-#                          rep(1E-1,I))) #9
+hope_i <- hier_gp_mh_i(iters = 4E5,verbose = TRUE, burnin_prop = 0.2,
+                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
+                          rep(1E-2,I),#1
+                          rep(1E-2,I),#2
+                          rep(1,I), #3
+                          rep(1,I), #4
+                          rep(1,I),#5
+                          rep(1,I),#6
+                          rep(1E-2,I),#7
+                          rep(1E-2,I),#8
+                          rep(1E-2,I),#9
+                          rep(1,I),#10
+                          rep(1E-2,I),#11
+                          rep(1,I),#12
+                          rep(1E-1,I))) #9
 )
 write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
 
