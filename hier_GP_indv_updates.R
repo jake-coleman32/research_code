@@ -5,19 +5,33 @@ library(mvtnorm)
 library(dplyr)
 library(caTools)
 library(Matrix)
+library(geoR)
 
 
-GP_cov <- function(d,lambda,ell,nugget = 0.){
-  
-  out_mat <- lambda^(-1)*exp(-as.matrix(dist(d))^2/ell^2) + nugget*diag(length(d))
-  
+GP_cov <- function(d,lambda,ell,type = 'matern', nu = 3/2, nugget = 0.){
+  d_mat <- as.matrix(dist(d))
+  if(type=="sqr.exp"){
+    out_mat <- lambda^(-1)*exp(-d_mat^2/ell^2) + nugget*diag(length(d))
+  }else if(type=="matern"){
+    out_mat <- lambda^(-1)*matern(d_mat,phi=ell,kappa = nu) + nugget*diag(length(d))
+  }else{
+    stop('Wrong covariance function type')
+  } 
+
+
   return(out_mat)
 }
 
-GP_cross_cov <- function(d,d_star,lambda,ell){
+GP_cross_cov <- function(d,d_star,lambda,ell,type = 'matern',nu = 3/2){
   inds <- 1:length(d)
-  
-  out_mat <- lambda^(-1)*exp(-as.matrix(dist(c(d,d_star)))[inds,-inds]^2/ell^2)
+  d_mat <- as.matrix(dist(c(d,d_star)))
+  if(type=="sqr.exp"){
+    out_mat <- lambda^(-1)*exp(-d_mat[inds,-inds]^2/ell^2)
+  } else if(type=="matern"){
+    out_mat <- lambda^(-1)*matern(d_mat[inds,-inds],phi = ell, kappa = nu)
+  }else{ 
+    stop('Wrong covariance function type')
+  }
   
   return(out_mat)
 }
@@ -115,12 +129,12 @@ if(save_data){
 params <- list()
 
 r <- 0.5
-N <- (J-1) #One fewer than number of bins: the max number for N
+N <- 6 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 Nz <- 1:floor(N/2)
 Nw <- 1:ceiling(N/2)
 
-c <- 1
+c <- .3
 r^max(Nw)
 pnorm(-1/sqrt((2*c*r^2/(1-r^2))))
 r_vec <- c(c*r^Nz,c*r^Nw)
@@ -163,7 +177,7 @@ params$C <- C
 #Save the parameters to use later
 save(params,file = "params_list.Rdata")
 
-run_description <- "r_vec is c*r^n, with r =0.5,c=1. Lambda is fixed at 1. Checking new code structure "
+run_description <- "r_vec is c*r^n, with r =0.5,c=0.3. N = 6"
 write(run_description,file="model_description.txt")
 
 
@@ -179,12 +193,13 @@ print(paste("C",rankMatrix(t(C))[1]))
 #Use fact that the sum of probabilities add to one
 #Could be issue if we trim before observations end
 #I.e. if gam != 1
-j_trim <- 1
-C_trim <- C[-j_trim,]
-P_hat <- t(Y_trunc[,-j_trim]/num_counts) #P_hat is (J-1)xI
+
+#j_trim <- 1
+#C_trim <- C[-j_trim,]
+#P_hat <- t(Y_trunc[,-j_trim]/num_counts) #P_hat is (J-1)xI
 
 #Different starting points
-X_mle <- sqrt(0.5)*solve(R)%*%solve(C_trim)%*%(P_hat - replicate(I,b[-j_trim]/t_star))
+#X_mle <- sqrt(0.5)*solve(R)%*%solve(C_trim)%*%(P_hat - replicate(I,b[-j_trim]/t_star))
 X_0 <- replicate(I,rep(0,N))
 
 
@@ -211,11 +226,13 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
   lam_mat <- ell_mat <- matrix(0,iters,N)
   
   #Current values
-  X_cur <- X_mle #currently N x I
+  X_cur <- matrix(rnorm(N*I),N,I) #currently N x I
   ell_cur <- rgamma(N,ell_a,ell_b)
   lam_cur <- rep(1,N)
   
   p_cur <- t(sqrt(2)*C%*%sweep(X_cur,1,r_vec,"*") + replicate(I,b/t_star))
+  
+  if(sum(p_cur<0)) stop("Unlucky, try again")
   l_cur <- sum(Y_trunc*log(p_cur))# + sum(Y_trunc[,j_trim]*log(1-apply(p_cur,1,sum)))
   
   ell_acc <- lam_acc  <- numeric(N)
@@ -385,21 +402,21 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.3,
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.5,
                        X_kap = matrix(nrow = I, byrow = FALSE,data = c(
                          rep(1E-1,I),#1
                          rep(1E-1,I),#2
-                         rep(1E-1,I), #3
+                         rep(1E0,I), #3
                          rep(1E-1,I), #4
                          rep(1E-1,I),#5
-                         rep(1E-1,I),#6
-                         rep(1E-1,I),#7
-                         rep(1E-1,I),#8
-                         rep(1E-1,I))) #9
+                         rep(1E0,I)))#,#6
+#                          rep(1E-1,I),#7
+#                          rep(1E-1,I),#8
+#                          rep(1E-1,I))) #9
 )
 
 
-save(hope, file = "sampler_vals.Rdata")
+save(hope_i, file = "sampler_vals.Rdata")
 
 
 
