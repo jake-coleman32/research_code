@@ -108,7 +108,7 @@ data$trunc_cols <-trunc_cols
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
 alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
-jitter = FALSE
+jitter = TRUE
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
 }
@@ -426,7 +426,7 @@ params$X_kap <- X_kap_run
 save(params,file = "params_list.Rdata")
 
 start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 4E5,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap)
+hope_i <- hier_gp_mh_i(iters = 3E5,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap)
 write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
