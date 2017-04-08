@@ -6,8 +6,8 @@ library(lpSolve)
 
 set.seed(47)
 #Make the underlying data
-dat_alph <- 7
-dat_bet <-3
+dat_alph <- 3
+dat_bet <-7
 x_dat <- rbeta(10000,dat_alph,dat_bet)
 
 #Make the histogram data
@@ -23,11 +23,11 @@ my_hist <- function(dat,bounds){
 t_star = 1
 
 #bin_size = 0.1
-(alpha <- seq(0,t_star, length = 50))
+(alpha <- seq(0,t_star, length = 11))
 alpha[2:(length(alpha)-1)] <- alpha[2:(length(alpha)-1)] + 
   rnorm(length(alpha)-2,0,1E-3)
 
-(y <- my_hist(x_dat,bounds=alpha) + 1)#so x_mle doesn't freak out
+(y <- my_hist(x_dat,bounds=alpha))# + 1)#so x_mle doesn't freak out
 
 #Make coefficient matrices
 make_coef_mats <- function(N){
@@ -45,28 +45,37 @@ make_coef_mats <- function(N){
   
   return(list(A=A,B=B))
 }
-coef_5 <- make_coef_mats(24)
+coef_5 <- make_coef_mats(5)
 A = coef_5$A
 B = coef_5$B
 
 C <- t(rbind(A,B))
-#C <- C[,-3]#All zeroes
+round(C,3)
+
+C <- C[,-5]#All zeroes
+dim(C)
+rankMatrix(C)[1]
+
+
 (Nx <- dim(C)[2])
 
 (J <- dim(C)[1])
 (bin_sizes <- (alpha-lag(alpha))[-1])
 
-rankMatrix(C)[1]
-r = 0.5
+r = 0.7
+c = .2
+prior_prob(c,r,t_star)
+(r_vec <- c*sqrt(2)*c(r^(1:floor(Nx/2)),r^(1:ceiling(Nx/2))))
 
-#non_j = 1
-#phat <- (phat <- y/sum(y))
-#C_trim <- C[-non_j,]
-#x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-0.1)/r_vec)
-gam = pbeta(t_star,dat_alph,dat_bet)
+non_j = 1
+phat <- (phat <- y/sum(y))
+C_trim <- C[-non_j,]
+(x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-0.1)/r_vec))
+
+(gam = pbeta(t_star,dat_alph,dat_bet))
 
 mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,Nx),
-                          verbose = FALSE,
+                          verbose = FALSE, x_start  = "random",
                           y = y){
   #Write some MH sampler
   burnin <- floor(burnin_prop*iters)
@@ -74,9 +83,14 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   x_mat <-matrix(0,iters,Nx)
   x_acc <- x_ob <- numeric(Nx)
   
-  r_vec <- sqrt(2)*c(r^(1:floor(Nx/2)),r^(1:ceiling(Nx/2)))
   
-  x_cur <- rnorm(Nx)
+  
+  if(x_start == "random") x_cur <- rnorm(Nx)
+  else if(x_start== "mle") x_cur <- x_mle
+  
+  print("x_start is")
+  print(x_cur)
+
   
   
   (p_cur <- as.numeric(C%*%(r_vec*x_cur))+bin_sizes*gam/t_star)
@@ -86,10 +100,18 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   
   l_cur <- sum(y*log(p_cur))
   
+  time_start <- proc.time()
   for(i in 1:(iters+burnin)){
     #propose new values for Z and W
+    if(!i%%1000){
+        flush.console()
+        cat("\r i = ", i, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
+        #print(paste0("t = ", t, ", n = ", n))
+    }
+    
     for(n in 1:Nx){
       if(verbose){
+        if(!(i%%(0.1*iters)))
         flush.console()
         cat("\r i = ", i, ", n = ", n) 
       }
@@ -158,25 +180,39 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   return(list(x_mat = x_mat,x_acc = x_acc/(iters + burnin), x_ob=x_ob))
 }
 
-res2 <- mh_hist_trunc(iters = 1E5,burnin_prop = 0.3, r = 0.5,#kap = c(2E-3,2E-2,3E-2,2E-2,5E-1,
-                      #       1,1E-2,4E-1,1))
-#                       kap = c(5E-2,#z1
-#                               1E-1,#z2
-#                               1E-1,#z3
-#                               1E-1,#z4
-#                               1E-1,#z5
-#                               4E-1,#w1 -6
-#                               1E-1,#w2 -7
-#                               1E-1,#w3 -8
-#                               1E-1,#w4-9
-#                               1E-1#w5 -10
-#                               ),
+kap_x <- c(1,#1
+                1E-2,#2
+                3,#3
+                1,#4
+                5,#5
+                5,#6
+                5,#7
+                5#8
+#                 5,#9
+#                 1E-2,#10,
+#            5,#11,
+#            1E-2,#12,
+#            5,#13,
+#            1E-1,#14,
+#            5,#15,
+#            1E-1,#16,
+#            5,#17,
+#            1,#18,
+#            5#19,
+)
+
+res2 <- mh_hist_trunc(iters = 5E4,burnin_prop = 0.3, 
                       kap = rep(1E-1,Nx),
+                      x_start = "random",
                       verbose = FALSE,
                       #gam = sum(y/length(x_dat)),
                       y = y)
+apply(res2$x_mat,2,mean)
 
-plot_dens(res2,r=0.5,T_out,save_pics = FALSE,legend_side = 'topleft')
+T_out=seq(0,t_star,length=100)
+
+plot_dens(res2,r=r,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE)
+add_hist(y)
 lines(density(x_dat),col = 'green')
 
 plot_traces(save_pics = FALSE)
@@ -212,8 +248,8 @@ plot_traces <- function(save_pics = FALSE){
       index = i-floor(Nx/2)
     }
     if(save_pics) pdf(paste0(path,var_type,i,suffix,'.pdf'))
-    plot(res2$x_mat[,i],type = 'l',ylab = bquote(.(var_type)[.(index)]),
-         main = bquote('Trace Plot of '~.(var_type)[.(index)]),
+    plot(res2$x_mat[,i],type = 'l',ylab = bquote(X[.(i)]),
+         main = bquote('Trace Plot of '~X[.(i)]),
          xlab = 'Iteration')
     if(save_pics)dev.off()
   }
@@ -233,30 +269,51 @@ est_dens2 <- function(x_mat, r,T_out=seq(0,t_star,length=20)){
     sin_vec <- sin(2*pi*T_out[t]*(1:ceiling(Nx/2))/t_star)*r^(1:ceiling(Nx/2))
     cos_sin_vec <- c(cos_vec,sin_vec)
     
-    f_mat[,t] <- sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
+    f_mat[,t] <- c*sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
   }
   return(f_mat)
 }
 
-T_out=seq(0,t_star,length=100)
 
 
 
-plot_dens <- function(results,r,T_out, save_pics = FALSE,legend_side = 'topright',...){
+plot_dens <- function(results,r,T_out, save_pics = FALSE,legend_side = 'topright',
+                      plot_beta = FALSE,...){
   f_est <- est_dens2(results$x_mat,r,T_out = T_out)
   mean_est <- apply(f_est,2,mean)
   
   if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
-  plot(T_out,mean_est,type = 'l', main = 'GP Density Estimate',
+  plot(T_out,mean_est,type = 'l', 
+       main = bquote('GP Density Estimate, Bins = '~.(length(alpha)-1)~"& "~N[x]~"= "~.(Nx)),
+      # main = "GP Density Estimate",
        ylab = 'Density',xlab = 'y',lwd = 2,
        ylim = c(0,max(apply(f_est,2,quantile,0.975))),
        ...)#,ylim = c(0,2))
+  if(plot_beta) lines(T_out,dbeta(T_out,dat_alph,dat_bet),type ='l',col = 'red',lwd = 2)
+  
   lines(T_out,apply(f_est,2,quantile,0.025),col = 'blue',lty=2)
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
-  lines(T_out,dbeta(T_out,dat_alph,dat_bet),type ='l',col = 'red',lwd = 2)
   legend(legend_side,c('Post Mean','Post 95% Cred','Truth'),
-         lwd = 2,lty = c(1,2,1),col = c('black','blue','red'))
+         lwd = 2,lty = c(1,2,1),col = c('black','blue','red'))    
   if(save_pics) dev.off()
 }
 
 summary(apply(f_est,1,function(x){trapz(T_out,x)}))
+
+check_rank <- function(C){
+  rankifremoved <- sapply(1:ncol(C), function (x) rankMatrix(C[,-x])[1])
+  return(rankifremoved)
+}
+
+#Scractch
+Y_small_bins <- numeric(length(Y_new_trunc)/2)
+for(j in 1:(length(Y_new_trunc)/2)){
+  k1 = 2*j-1
+  print(k1)
+  k2 = 2*j
+  print(k2)
+  Y_small_bins[j] <- Y_new_trunc[k1] + Y_new_trunc[k2]
+}
+
+(y <- Y_new_trunc[1:10])
+

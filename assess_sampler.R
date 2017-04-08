@@ -1,8 +1,10 @@
 #File to show pictures/look at plots easily
 setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
+load('data_list.Rdata')
 
 #Change to what you need
-setwd('2017-03-27 00:30:39/')
+setwd('r_p7_c_p1/')
+load('params_list.Rdata')
 #######################
 #Plot functions
 ##########################
@@ -28,13 +30,13 @@ GP_cross_cov <- function(d,d_star,lambda,ell){
 plot_traces <- function(x_hist,save_pics = FALSE){
   
   for(n in 1:N){
-    if(n<ceiling(N/2)){
+    if(n<=floor(N/2)){
       var_type = 'Z'
       index = n
     }
     else{
       var_type = 'W'
-      index = n-floor(N/2)
+      index = n-ceiling(N/2) 
     }
     if(save_pics) pdf(paste0(path,var_type,n,suffix,'.pdf'))
     plot(x_hist[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
@@ -77,6 +79,17 @@ est_dens_i <- function(x_mat){
   return(f_mat)
 }
 
+add_hist <- function(Y = Y_new_trunc,add = TRUE){
+  #Requires alpha
+  
+  Y_fake_dat <- c()
+  for(j in 1:length(Y)){
+    Y_fake_dat <- c(Y_fake_dat, runif(Y[j], alpha[j],alpha[j+1]))
+  }
+  hist(Y_fake_dat, breaks = alpha,probability = 1,add = add,
+       col = rgb(1,0,0,0.1))
+}
+
 #Plot the predicted density, given the T x N matrix of components
 plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
   f_est <- est_dens_i(x_mat)
@@ -91,8 +104,20 @@ plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
   # legend(legend_side,c('Post Mean','Post 95% Cred'),
   #       lwd = 2,lty = c(1,2),col = c('black','blue'))
+  
+  add_hist()
+  
+  colvec <- c(rgb(t(col2rgb('black'))),
+              rgb(t(col2rgb('blue')),max = 255),
+              rgb(t(col2rgb('red')),max = 255,alpha = 50))
+  legend('topright',c('Post Mean', '95% Interval', 'Truth'),
+         lty = c(1,2,0), lwd = c(1,1,0),bty = "n",
+         col = colvec,
+         pch = c(NA,NA, 15),
+         pt.cex = 2)
   if(save_pics) dev.off()
 }
+plot_dens_i(X_pred,save_pics = FALSE) #Density
 
 #Estimate the predicted bin probabilities given histogram components X_i
 est_probs_i <- function(X_i){
@@ -129,9 +154,6 @@ create_cond_mats <- function(X_mat_all,lam_mat,ell_mat){
   return(list(cov_inv_mats = cov_inv_mats,inv_vec_mult = inv_vec_mult,
               ell_mat = ell_mat,lam_mat = lam_mat))
 }
-
-
-
 
 #Predict components for calculating predictive distribution of density
 #Essentially integrate them away
@@ -266,8 +288,9 @@ plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE){
 #Load what you need
 #########
 
-
+load('sampler_vals.Rdata')
 X <- hope_i$X
+apply(hope_i$x_acc,1,mean)
 
 #Extra burnin if necessary
 #extra_burn = min(which(X[,9,]<(-1)))
@@ -277,7 +300,8 @@ lam_burn <- hope_i$lam[extra_burn:dim(X)[1],]
 ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
 
 #Thinning if necessary
-thin = 500
+thin = 300
+#thin = 200
 iters <- 1:dim(X_burn)[1]
 X_thin <- X_burn[!iters%%thin,,]
 lam_thin <- lam_burn[!iters%%thin,]
@@ -289,10 +313,10 @@ X_i <- X_thin[,,i]
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_30/'
+meeting_folder <- 'meeting_4_6/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
-suffix = '_holdout_small_r_c'
+suffix = '_old_good'
 
 
 #Look for evidence of non-convergence
@@ -318,6 +342,12 @@ plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = FALSE) #predicted
 ##############################
 ##Scratch work
 
+#Checking out singularity in C
+for(n in 1:dim(C)[2]){
+  View(round(sweep(C,1,C[,n] + 1E-5,"/"),3))
+}
+
+View(round(sweep(C,1,C[,4],"/"),3))
 
 #Plotting predictive probabilities by the predicted density
 new_t <- vector("list",J)

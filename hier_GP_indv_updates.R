@@ -57,7 +57,7 @@ jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAP
 jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
-on_comp = TRUE
+on_comp = FALSE
 #Create new directory based on date/time, change to it
 if(on_comp){
   model_time = Sys.time()
@@ -69,7 +69,7 @@ if(on_comp){
 }
 
 
-current_path = jet_path_comp
+current_path = jet_path_lap
 
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
