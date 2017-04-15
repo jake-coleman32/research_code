@@ -3,7 +3,7 @@ setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
 load('data_list.Rdata')
 
 #Change to what you need
-setwd('r_p7_c_p1/')
+setwd('good_r_p5_c_1/')
 load('params_list.Rdata')
 #######################
 #Plot functions
@@ -284,6 +284,22 @@ plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE){
   if(save_pics) dev.off() 
 }
 
+#Look at the coefficients, see if the 95% credible interval
+# overlaps with zero
+plot_coefs <- function(xmat){
+  means <- apply(xmat,2,mean)
+  plot(means,pch = 19, col = 'blue', xlab = "Component",ylab = 'Value',
+       main = 'Components 95% Credible Intervals',
+       ylim = c(min(apply(xmat,2,quantile,probs = 0.025)),
+                max(apply(xmat,2,quantile,probs = 0.975))))
+  abline(h = 0,col = 'red')
+  
+  arrows(1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.025),
+         1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.975), 
+         length=0.05, angle=90, code=3)
+  
+}
+
 ##########
 #Load what you need
 #########
@@ -300,7 +316,7 @@ lam_burn <- hope_i$lam[extra_burn:dim(X)[1],]
 ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
 
 #Thinning if necessary
-thin = 300
+thin = 500
 #thin = 200
 iters <- 1:dim(X_burn)[1]
 X_thin <- X_burn[!iters%%thin,,]
@@ -313,7 +329,7 @@ X_i <- X_thin[,,i]
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_4_6/'
+meeting_folder <- 'meeting_4_13/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
 suffix = '_old_good'
@@ -341,6 +357,70 @@ plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = FALSE) #predicted
 
 ##############################
 ##Scratch work
+
+#Calibration, given those draws from predictive posterior
+get_cal_draws <- function(X_pred){
+  pred_probs <- est_probs_i(X_pred)
+  Y_pred <- apply(pred_probs,2,function(x){
+    return(rmultinom(1,num_counts,x))
+  })
+  return(Y_pred)
+}
+
+cal_qhat <- function(kap, num_cals = 1E3){
+  #Setup
+  auto_reject = FALSE
+  accept <- 0 
+  q_cals <- numeric(num_cals)
+  
+  #Current values
+  q_cur <- runif(1)
+  X_pred_cur <- pred_x(run_cond_mats, d_prime = q_cur, d_cond = d_scaled)
+  p_cur <- apply(est_probs_i(X_pred_cur),1,mean)
+
+  time_start <- proc.time()
+  #Go through loop
+  for(i in 1:num_cals){
+    
+    #Propose new qhat
+    q_st <- rnorm(1,q_cur,kap)
+    if(q_st<0 | q_st > 1) auto_reject = TRUE
+    
+    #predict Y's with qhat
+    X_pred_st <- pred_x(run_cond_mats, d_prime = q_st, d_cond = d_scaled)
+    p_st <- apply(est_probs_i(X_pred_cur),1,mean)
+    
+    #calculate likelihood of predicted Y's compared to actual
+    log_ratio <- dmultinom(Y_new_trunc,prob = p_st,log = TRUE) - 
+      dmultinom(Y_new_trunc,prob = p_cur,log = TRUE) 
+    
+    if(runif(1)<exp(log_ratio) & !auto_reject){
+      p_cur <- p_st
+      q_cur <- q_st
+      accept <- accept + 1
+    }
+    
+    q_cals[i] <- q_cur
+    auto_reject <- FALSE
+    
+    if(!i%%100){
+      flush.console()
+      cat("\r i = ", i, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
+      #print(paste0("t = ", t, ", n = ", n))
+    }    
+  }
+  print(accept/num_cals)
+  return(list(q_cals = q_cals, acc_ratio = accept/num_cals))
+}
+
+cal_try <- cal_qhat(kap = 0.1)
+cal_try$acc_ratio
+
+q_cal <- cal_try$q_cals
+hist(q_cal)
+plot(q_cal,type = 'l')
+
+
 
 #Checking out singularity in C
 for(n in 1:dim(C)[2]){

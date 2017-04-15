@@ -3,6 +3,7 @@ library(dplyr) #or lag doesn't work
 library(truncnorm)
 library(TruncatedNormal)
 library(lpSolve)
+library(Matrix)
 
 set.seed(47)
 #Make the underlying data
@@ -20,10 +21,10 @@ my_hist <- function(dat,bounds){
   return(bins)
 }
 
-t_star = 1
+t_star = 0.6
 
 #bin_size = 0.1
-(alpha <- seq(0,t_star, length = 11))
+(alpha <- seq(0,t_star, length = 7))
 alpha[2:(length(alpha)-1)] <- alpha[2:(length(alpha)-1)] + 
   rnorm(length(alpha)-2,0,1E-3)
 
@@ -45,14 +46,18 @@ make_coef_mats <- function(N){
   
   return(list(A=A,B=B))
 }
-coef_5 <- make_coef_mats(5)
+N <- 3
+coef_5 <- make_coef_mats(N)
 A = coef_5$A
 B = coef_5$B
 
 C <- t(rbind(A,B))
+
+(bad_cols <- which(apply(C,2,function(x){sum(abs(x)<1E-5)})==dim(C)[1]))
+if(length(bad_cols)) C <- C[,-bad_cols]
+
 round(C,3)
 
-C <- C[,-5]#All zeroes
 dim(C)
 rankMatrix(C)[1]
 
@@ -63,9 +68,17 @@ rankMatrix(C)[1]
 (bin_sizes <- (alpha-lag(alpha))[-1])
 
 r = 0.7
-c = .2
+c = .3
 prior_prob(c,r,t_star)
-(r_vec <- c*sqrt(2)*c(r^(1:floor(Nx/2)),r^(1:ceiling(Nx/2))))
+Nz <- Nw <-  1:N
+if(length(bad_cols)){
+  bad_z <- bad_cols[which(bad_cols<=N)]
+  bad_w <- (bad_cols-N)[which(bad_cols>N)]
+  if(length(bad_z)) Nz <- Nz[-bad_z]
+  if(length(bad_w)) Nw <- Nw[-bad_w]
+}
+
+(r_vec <- c*sqrt(2)*c(r^Nz,r^Nw))
 
 non_j = 1
 phat <- (phat <- y/sum(y))
@@ -103,7 +116,7 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   time_start <- proc.time()
   for(i in 1:(iters+burnin)){
     #propose new values for Z and W
-    if(!i%%1000){
+    if(!i%%(iters*0.1)){
         flush.console()
         cat("\r i = ", i, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
         #print(paste0("t = ", t, ", n = ", n))
@@ -202,20 +215,32 @@ kap_x <- c(1,#1
 )
 
 res2 <- mh_hist_trunc(iters = 5E4,burnin_prop = 0.3, 
-                      kap = rep(1E-1,Nx),
+                      kap = rep(5E-1,Nx),
                       x_start = "random",
                       verbose = FALSE,
                       #gam = sum(y/length(x_dat)),
                       y = y)
 apply(res2$x_mat,2,mean)
 
+
+#Thinning if necessary
+thin = 20
+iters <- 1:dim(res2$x_mat)[1]
+x_thin <- res2$x_mat[!iters%%thin,]
+
+#Checking easy-to-check
+effectiveSize(x_thin)
+acf(x_thin[,1])
+
 T_out=seq(0,t_star,length=100)
 
-plot_dens(res2,r=r,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE)
+plot_dens(x_thin,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE)
 add_hist(y)
 lines(density(x_dat),col = 'green')
 
-plot_traces(save_pics = FALSE)
+plot_coefs(x_thin)
+plot_traces(x_thin,save_pics = FALSE)
+
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
 meeting_folder <- 'meeting_2_23/'
@@ -237,7 +262,7 @@ if(save_pics){
 
 xtable(mean_table,digits = 3)
 
-plot_traces <- function(save_pics = FALSE){
+plot_traces <- function(x_mat,save_pics = FALSE){
   for(i in 1:Nx){
     if(i<ceiling(Nx/2)){
       var_type = 'Z'
@@ -248,25 +273,33 @@ plot_traces <- function(save_pics = FALSE){
       index = i-floor(Nx/2)
     }
     if(save_pics) pdf(paste0(path,var_type,i,suffix,'.pdf'))
-    plot(res2$x_mat[,i],type = 'l',ylab = bquote(X[.(i)]),
+    plot(x_mat[,i],type = 'l',ylab = bquote(X[.(i)]),
          main = bquote('Trace Plot of '~X[.(i)]),
          xlab = 'Iteration')
     if(save_pics)dev.off()
   }
 }
+plot_coefs <- function(xmat){
+  means <- apply(xmat,2,mean)
+  plot(means,pch = 19, col = 'blue', xlab = "Component",ylab = 'Value',
+       main = 'Components 95% Credible Intervals',
+       ylim = c(min(apply(xmat,2,quantile,probs = 0.025)),
+                max(apply(xmat,2,quantile,probs = 0.975))))
+  abline(h = 0,col = 'red')
+  
+  arrows(1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.025),
+         1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.975), 
+                               length=0.05, angle=90, code=3)
+  
+}
 
 
-
-
-
-
-
-est_dens2 <- function(x_mat, r,T_out=seq(0,t_star,length=20)){
+est_dens2 <- function(x_mat,T_out=seq(0,t_star,length=20)){
   f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
   Nx <- dim(x_mat)[2]
   for(t in 1:length(T_out)){
-    cos_vec <- cos(2*pi*T_out[t]*(1:floor(Nx/2))/t_star)*r^(1:floor(Nx/2))
-    sin_vec <- sin(2*pi*T_out[t]*(1:ceiling(Nx/2))/t_star)*r^(1:ceiling(Nx/2))
+    cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)*r^Nz
+    sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)*r^Nw
     cos_sin_vec <- c(cos_vec,sin_vec)
     
     f_mat[,t] <- c*sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
@@ -275,11 +308,9 @@ est_dens2 <- function(x_mat, r,T_out=seq(0,t_star,length=20)){
 }
 
 
-
-
-plot_dens <- function(results,r,T_out, save_pics = FALSE,legend_side = 'topright',
+plot_dens <- function(x_mat,T_out, save_pics = FALSE,legend_side = 'topright',
                       plot_beta = FALSE,...){
-  f_est <- est_dens2(results$x_mat,r,T_out = T_out)
+  f_est <- est_dens2(x_mat,T_out = T_out)
   mean_est <- apply(f_est,2,mean)
   
   if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
