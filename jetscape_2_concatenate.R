@@ -234,7 +234,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     }
     
     #Propose new t_st
-    t_st <- rnorm(2,t_cur,sd = t_kap)
+    t_st <- mvtnorm::rmvnorm(1,mean=t_cur,sigma = t_kap*matrix(c(1,-.8,-.8,1),ncol = 2))
     
     #Check to make sure parameter is within [0,1]
     auto_reject = FALSE
@@ -243,7 +243,8 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
       ob_ratio = ob_ratio + 1
     }
     
-    (X_st_sqrt <- t(as.matrix(t_st)))
+    #(X_st_sqrt <- t(as.matrix(t_st)))
+    X_st_sqrt <- t_st
     X_st <- X_st_sqrt^2
     #Get the predictive mean/sd for t_st
     st_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_st)
@@ -302,7 +303,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
 }
 
 
-res <- mh_cal(niters = 1E5,t_kap = c(8E-2,8E-2))
+res <- mh_cal(niters = 1E5,t_kap = 1E-1)
 #save(res,file = paste0(save_path,'res_old.Rdata'))
 
 param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
