@@ -221,7 +221,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
   t_cur <- runif(2)
 
   #Get current values
-  (X_cur <- t(as.matrix(t_cur)))
+  (X_cur <- (t(as.matrix(t_cur))))
   cur_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_cur)
   
   #(descrep_cov_cur <- cov_mat(pT_scaled,ell_cur,lam_cur))
@@ -243,7 +243,8 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
       ob_ratio = ob_ratio + 1
     }
     
-    (X_st <- t(as.matrix(t_st)))
+    (X_st_sqrt <- t(as.matrix(t_st)))
+    X_st <- X_st_sqrt^2
     #Get the predictive mean/sd for t_st
     st_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_st)
     
@@ -262,17 +263,17 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     
     #Get likelihoods
  
-      like_cur <- dmvnorm(x = Z_exp,
+      like_cur <- mvtnorm::dmvnorm(x = Z_exp,
                           mean = zmod_cur,
                           sigma = Z_cov,
                           log = TRUE)
-      like_st <- dmvnorm(x = Z_exp,
+      like_st <- mvtnorm::dmvnorm(x = Z_exp,
                          mean = zmod_st,
                          sigma = Z_cov,
                          log = TRUE)
 
-    
-    ratio <- sum(like_st) - sum(like_cur)
+    #Includes constant prior 
+    ratio <- sum(like_st) - sum(like_cur) + sum(log(2*X_st)) - sum(log(2*X_cur))
     
     #Put exponential prior on first input parameter?
     # if(j==1) ratio <- ratio + dexp(tj_st,log = TRUE) - dexp(t_cur[j],log = TRUE)
@@ -302,15 +303,27 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
 
 
 res <- mh_cal(niters = 1E5,t_kap = c(8E-2,8E-2))
-save(res,file = paste0(save_path,'res_old.Rdata'))
+#save(res,file = paste0(save_path,'res_old.Rdata'))
 
 param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
+#param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
 for(j in 1:2){
-  param_plot[,j] <- res$params[,j]*(max(design[,j]) - min(design[j])) + min(design[j])
+  param_plot[,j] <- res$params[,j]^2*(max((design[,j])) - min((design[j]))) + min((design[j]))
 }
-colnames(param_plot) <- c('ET','T2')
-write.table(param_plot,file = paste0(save_path,'post_draws.txt'),
-            row.names = FALSE)
+param_plot_sqrt <- sqrt(param_plot)
+
+plot(param_plot[,1],type = 'l', ylab = expression(Lambda^jet), xlab = 'Iteration',
+     main = expression(Lambda^jet~'Trace Plot'))
+plot(param_plot[,2],type = 'l', ylab = expression(~alpha[s]^med), xlab = 'Iteration',
+     main = expression(~alpha[s]^med~'Trace Plot'))
+
+plot(res$params[,1],type = 'l', ylab = expression(sqrt(Lambda^jet)), xlab = 'Iteration',
+     main = expression(sqrt(Lambda^jet)~'Trace Plot'))
+plot(res$params[,2],type = 'l', ylab = expression(sqrt(alpha[s]^med)), xlab = 'Iteration',
+     main = expression(sqrt(alpha[s]^med)~'Trace Plot'))
+
+#write.table(param_plot,file = paste0(save_path,'post_draws.txt'),
+ #           row.names = FALSE)
 
 #Now there are 12 bivariate normal likelihoods, rather than 12 univariate normal likelihoods
 #Everything else is the same
@@ -327,21 +340,22 @@ panel.hist <- function(x, ...)
 }
 
 panel.image <- function(x,y,...){
-  f1 <- kde2d(x, y, n = 100)
-  image(f1,add = TRUE)
+  #f1 <- kde2d(x, y, n = 100)
+  #image(f1,add = TRUE)
+  points(x,y, col = rgb(1,0,0,.1))
 }
 
 if(save_pics){ pdf(paste0(save_path,
                          paste0(systems_to_calibrate,collapse = "_"),
                          ".pdf"))}
-pairs(param_plot, 
+pairs(res$params, 
       panel = panel.image,
       diag.panel = panel.hist,
       #pch = 19,
       #cex = .3,
       col = rgb(1,0,0,.1),
-      labels = c(expression(Lambda^jet),
-                 expression("log("~alpha[s]^med~")")),
+      labels = c(expression(sqrt(Lambda^jet)),
+                 expression(sqrt(alpha[s]^med))),
       upper.panel = NULL,
       cex.lab = 1.5,
       cex.axis = 1.3,
@@ -351,6 +365,33 @@ pairs(param_plot,
       main = hist_main)
 if(save_pics) dev.off()
 
+effectiveSize(param_plot)
+
+
+f1 <- kde2d(param_plot[,1], (param_plot[,2]), n = 100)
+par(mar=c(5.1, 5.1, 4.1, 2.1))
+image(f1,
+      xlab = expression(Lambda^jet),
+      ylab = "",
+      main = "Heat Map of Posterior Draws",
+      cex.lab = 2,
+      cex.axis = 1.3,
+      cex.main = 1.4,
+      mgp = c(3,1,0)
+)
+title(ylab = expression(alpha[s]^med), 
+      mgp = c(2.1,1,0),
+      cex.lab = 2,
+      cex.axis = 1.3)
+
+perc_lvl = c(.6,.75,.9)
+HPDregionplot(param_plot, prob = perc_lvl,
+              col=c("black"), lty = c(1,5,3), add=TRUE)
+
+
+legend('topright',paste0(perc_lvl*100,"%"),title = "Highest Density Kernel Estimate",
+       lty = c(1,5,3),
+       bty="n")
 
 
 #####
@@ -477,52 +518,23 @@ plot_draws(matrix(runif(2E3),ncol = 2),title_end = "Prior",
 
 
 
-plot(param_plot[,1], param_plot[,2])
-f1 <- kde2d(param_plot[,1], (param_plot[,2]), n = 100)
-par(mar=c(5.1, 5.1, 4.1, 2.1))
-image(f1,
-      xlab = expression(Lambda^jet),
-      ylab = "",
-      main = "Heat Map of Posterior Draws",
-      cex.lab = 2,
-      cex.axis = 1.3,
-      cex.main = 1.4,
-      mgp = c(3,1,0)
-      )
-title(ylab = expression(alpha[s]^med), 
-      mgp = c(2.1,1,0),
-      cex.lab = 2,
-      cex.axis = 1.3)
-index = which.max(f1$z)
 
-(col_max = index%/%dim(f1$z)[1] + 1)
-f1$x[row_max]
-(row_max = index%%dim(f1$z)[1])
-f1$y[col_max]
-#points(f1$x[row_max],f1$y[col_max])
-#points(mean(param_plot[,1]),mean((param_plot[,2])),pch = 19)
-points(median(param_plot[,1]),median(log(param_plot[,2])),pch = 15)
+
 
 samples <- param_plot
-#samples[,2] <- log(param_plot[,2])
 
-perc_lvl = c(.6,.75,.9)
-
-fit <- cov.mve(samples, quantile.used = nrow(samples) * perc_lvl,
-               nsamp = 1E4)
-points_in_ellipse <- samples[fit$best, ]
-ellipse_boundary <- predict(ellipsoidhull(points_in_ellipse))
-lines(ellipse_boundary, col="black", lwd=3)
-legend('topright',paste0(perc_lvl*100,"% Highest Density Ellipse"), lwd = 3,
-       bty = "n")
-
-HPDregionplot(samples, prob = perc_lvl,
-              col=c("black"), lty = c(1,5,3), add=TRUE)
+##Not needed
+# perc_lvl = c(.6,.75,.9)
+# 
+# fit <- cov.mve(samples, quantile.used = nrow(samples) * perc_lvl,
+#                nsamp = 1E4)
+# points_in_ellipse <- samples[fit$best, ]
+# ellipse_boundary <- predict(ellipsoidhull(points_in_ellipse))
+# lines(ellipse_boundary, col="black", lwd=3)
+# legend('topright',paste0(perc_lvl*100,"% Highest Density Ellipse"), lwd = 3,
+#        bty = "n")
 
 
-legend('topright',paste0(perc_lvl*100,"%"),title = "Highest Density Kernel Estimate",
-       lty = c(1,5,3),
-       bty="n")
 
 arrows(median(param_plot[,1]), hdi(log(param_plot),.9)[1,2],
        median(param_plot[,1]),hdi(log(param_plot),.9)[2,2],
