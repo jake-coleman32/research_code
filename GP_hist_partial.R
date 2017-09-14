@@ -22,12 +22,16 @@ my_hist <- function(dat,bounds){
 }
 
 t_star = 0.6
+t_minus = 0.1
 
 #bin_size = 0.1
-(alpha <- seq(0,t_star, length = 7))
-alpha[2:(length(alpha)-1)] <- alpha[2:(length(alpha)-1)] + 
-  rnorm(length(alpha)-2,0,1E-3)
+(alpha <- seq(t_minus,t_star, length = 6))
 
+jitter = FALSE
+if(jitter){
+  alpha[2:(length(alpha)-1)] <- alpha[2:(length(alpha)-1)] + 
+    rnorm(length(alpha)-2,0,1E-3)
+}
 (y <- my_hist(x_dat,bounds=alpha))# + 1)#so x_mle doesn't freak out
 
 #Make coefficient matrices
@@ -37,16 +41,16 @@ make_coef_mats <- function(N){
   
   for(n in 1:N){
     for(j in 2:J){
-      A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - 
-                            sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
-      B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - 
-                           cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
+      A[n,j-1] <- (t_star-t_minus)*(sin(2*pi*n*(alpha[j] - t_minus)/(t_star - t_minus)) - 
+                            sin(2*pi*n*(alpha[j-1] - t_minus)/(t_star - t_minus)))/(2*pi*n)
+      B[n,j-1] <- (t_star - t_minus)*(cos(2*pi*n*(alpha[j-1] - t_minus)/(t_star - t_minus)) - 
+                           cos(2*pi*n*(alpha[j] - t_minus)/(t_star-t_minus)))/(2*pi*n)
     }
   }
   
   return(list(A=A,B=B))
 }
-N <- 3
+N <- 10
 coef_5 <- make_coef_mats(N)
 A = coef_5$A
 B = coef_5$B
@@ -67,9 +71,10 @@ rankMatrix(C)[1]
 (J <- dim(C)[1])
 (bin_sizes <- (alpha-lag(alpha))[-1])
 
-r = 0.7
-c = .3
-prior_prob(c,r,t_star)
+r = 0.95
+(sig <- needed_sig(1E-5,t_st = t_star, t_min = t_minus))#Check these functions are right
+prior_prob(sig,t_star,t_minus)
+(c <- sig_to_c(sig = sig,r=r))
 Nz <- Nw <-  1:N
 if(length(bad_cols)){
   bad_z <- bad_cols[which(bad_cols<=N)]
@@ -85,7 +90,7 @@ phat <- (phat <- y/sum(y))
 C_trim <- C[-non_j,]
 (x_mle <- as.numeric(solve(C_trim)%*%(phat[-non_j]-0.1)/r_vec))
 
-(gam = pbeta(t_star,dat_alph,dat_bet))
+(gam = pbeta(t_star,dat_alph,dat_bet) - pbeta(t_minus,dat_alph,dat_bet))
 
 mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,Nx),
                           verbose = FALSE, x_start  = "random",
@@ -106,7 +111,7 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
 
   
   
-  (p_cur <- as.numeric(C%*%(r_vec*x_cur))+bin_sizes*gam/t_star)
+  sum((p_cur <- as.numeric(C%*%(r_vec*x_cur))+bin_sizes*gam/(t_star - t_minus)))
   if(sum(p_cur<0)){
     stop("Unlucky: try again")
   }
@@ -130,14 +135,14 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
       }
       
       auto_reject <- FALSE
-      constraints <- (-bin_sizes*gam/t_star-C[,-n]%*%(r_vec[-n]*x_cur[-n]))/
+      constraints <- (-bin_sizes*gam/(t_star - t_minus)-C[,-n]%*%(r_vec[-n]*x_cur[-n]))/
         (r_vec[n]*C[,n])
       (a_constraints <- constraints[which(round(C[,n],10)>0)])
       (b_constraints <- constraints[which(round(C[,n],10)<0)])
       (bad_constraints <- which(round(C[,n],10)==0))
       if(length(bad_constraints)){
         for(j in bad_constraints){
-          if((bin_sizes[j]*gam/t_star+C[j,-n]%*%(r_vec[-n]*x_cur[-n])) <= 0){
+          if((bin_sizes[j]*gam/(t_star-t_minus) + C[j,-n]%*%(r_vec[-n]*x_cur[-n])) <= 0){
             auto_reject <- TRUE
             l_star <- -Inf
           }
@@ -154,7 +159,7 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
         x_star[n] <- x_star_n
         
         
-        (p_star <- as.numeric(C%*%(r_vec*x_star)) + bin_sizes*gam/t_star)
+        (p_star <- as.numeric(C%*%(r_vec*x_star)) + bin_sizes*gam/(t_star - t_minus))
         if(sum(p_star<0)){stop(paste("neg pstar: i=",i,", n=",n))}
         
         if(round(sum(p_star),10)!=gam){stop(paste("pstar doesn't add up: i=",i,", n=",n))}
@@ -215,7 +220,7 @@ kap_x <- c(1,#1
 )
 
 res2 <- mh_hist_trunc(iters = 5E4,burnin_prop = 0.3, 
-                      kap = rep(5E-1,Nx),
+                      kap = rep(1,Nx),
                       x_start = "random",
                       verbose = FALSE,
                       #gam = sum(y/length(x_dat)),
@@ -232,10 +237,11 @@ x_thin <- res2$x_mat[!iters%%thin,]
 effectiveSize(x_thin)
 acf(x_thin[,1])
 
-T_out=seq(0,t_star,length=100)
+T_out=seq(t_minus,t_star,length=100)
 
 plot_dens(x_thin,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE)
 add_hist(y)
+abline(h = 0)
 lines(density(x_dat),col = 'green')
 
 plot_coefs(x_thin)
@@ -298,11 +304,11 @@ est_dens2 <- function(x_mat,T_out=seq(0,t_star,length=20)){
   f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
   Nx <- dim(x_mat)[2]
   for(t in 1:length(T_out)){
-    cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)*r^Nz
-    sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)*r^Nw
+    cos_vec <- cos(2*pi*Nz*(T_out[t]-t_minus)/(t_star-t_minus))*r^Nz
+    sin_vec <- sin(2*pi*Nw*(T_out[t]-t_minus)/(t_star-t_minus))*r^Nw
     cos_sin_vec <- c(cos_vec,sin_vec)
     
-    f_mat[,t] <- c*sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/t_star
+    f_mat[,t] <- c*sqrt(2)*x_mat%*%matrix(cos_sin_vec) + gam/(t_star-t_minus)
   }
   return(f_mat)
 }
