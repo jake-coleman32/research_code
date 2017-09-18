@@ -21,8 +21,8 @@ my_hist <- function(dat,bounds){
   return(bins)
 }
 
-t_star = 0.6
-t_minus = 0.1
+t_star = 1
+t_minus = 0
 
 #bin_size = 0.1
 (alpha <- seq(t_minus,t_star, length = 11))
@@ -80,9 +80,9 @@ coef_mats_cos_only <- function(N){
   }
   return(C)
 }
-N <- 10
+N <- 20
 
-basis_type = "pi"
+basis_type = "cos_only"
 if(basis_type=="2pi"){
   print("Using 2pi basis/covariance")
   coef_mats <- coef_mats_2pi(N)
@@ -101,9 +101,9 @@ if(basis_type=="2pi"){
   C <- t(coef_mats)
 }
 
-
 (bad_cols <- which(apply(C,2,function(x){sum(abs(x)<1E-5)})==dim(C)[1]))
 if(length(bad_cols)) C <- C[,-bad_cols]
+
 
 round(C,3)
 
@@ -121,6 +121,9 @@ r = 0.95
 prior_prob(sig,t_star,t_minus)
 
 (c <- sig_to_c(sig = sig,r=r))
+
+#This won't cause problems for the cos-only vector, because we'll never use Nw
+##and bad_cols will only be in 1:N
 Nz <- Nw <-  1:N
 if(length(bad_cols)){
   bad_z <- bad_cols[which(bad_cols<=N)]
@@ -129,7 +132,12 @@ if(length(bad_cols)){
   if(length(bad_w)) Nw <- Nw[-bad_w]
 }
 
-(r_vec <- c*c(r^Nz,r^Nw))
+if(basis_type %in% c("2pi","pi")){
+  (r_vec <- c*c(r^Nz,r^Nw))
+}else{
+  r_vec <- c*r^Nz
+}
+
 
 #non_j = 1
 #phat <- (phat <- y/sum(y))
@@ -199,8 +207,8 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
                             -Inf)
         top_const <- ifelse(length(b_constraints)>0,min(b_constraints),
                             Inf)
-        x_star_n <- rtruncnorm(1,a=bot_const,b = top_const,
-                               mean = x_cur[n],sd = kap[n])
+        (x_star_n <- rtruncnorm(1,a=bot_const,b = top_const,
+                               mean = x_cur[n],sd = kap[n]))
         x_star <- x_cur
         x_star[n] <- x_star_n
         
@@ -261,14 +269,14 @@ kap_x <- c(1E-2#1
            ,1#14,
            ,5#15,
            ,1#16,
-           #            5,#17,
-           #            1,#18,
+            ,1#17,
+            ,1#18,
            #            5#19,
 )
 
 res2 <- mh_hist_trunc(iters = 1E4,burnin_prop = 0.3, 
-                      kap = rep(1,Nx),
-                      #kap = kap_x,
+                      #kap = rep(1,Nx),
+                      kap = kap_x,
                       x_start = "random",
                       verbose = FALSE,
                       #gam = sum(y/length(x_dat)),
