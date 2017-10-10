@@ -5,8 +5,8 @@ library(TruncatedNormal)
 library(lpSolve)
 
 #Make the underlying data
-dat_alph <- 7
-dat_bet <-3
+dat_alph <- 3
+dat_bet <-7
 x_dat <- rbeta(10000,dat_alph,dat_bet)
 
 #Make the histogram data

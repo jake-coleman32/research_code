@@ -350,13 +350,10 @@ X_i <- X[,i,]
 plot_traces(i,save_pics = FALSE)
 
 
-plot_dens_i(X_i)
-plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
-
-
-
 gam=1
 T_out=seq(0,t_star,length=75)
+plot_dens_i(X_i)
+plot(as.numeric(colnames(Y_trunc)),Y_trunc[i,])
 
 
 

@@ -1,8 +1,10 @@
 #File to show pictures/look at plots easily
 setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
+load('data_list.Rdata')
 
 #Change to what you need
-setwd('2017-03-27 00:30:39/')
+setwd('good_r_p5_c_1/')
+load('params_list.Rdata')
 #######################
 #Plot functions
 ##########################
@@ -28,13 +30,13 @@ GP_cross_cov <- function(d,d_star,lambda,ell){
 plot_traces <- function(x_hist,save_pics = FALSE){
   
   for(n in 1:N){
-    if(n<ceiling(N/2)){
+    if(n<=floor(N/2)){
       var_type = 'Z'
       index = n
     }
     else{
       var_type = 'W'
-      index = n-floor(N/2)
+      index = n-ceiling(N/2) 
     }
     if(save_pics) pdf(paste0(path,var_type,n,suffix,'.pdf'))
     plot(x_hist[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
@@ -77,6 +79,17 @@ est_dens_i <- function(x_mat){
   return(f_mat)
 }
 
+add_hist <- function(Y = Y_new_trunc,add = TRUE){
+  #Requires alpha
+  
+  Y_fake_dat <- c()
+  for(j in 1:length(Y)){
+    Y_fake_dat <- c(Y_fake_dat, runif(Y[j], alpha[j],alpha[j+1]))
+  }
+  hist(Y_fake_dat, breaks = alpha,probability = 1,add = add,
+       col = rgb(1,0,0,0.1))
+}
+
 #Plot the predicted density, given the T x N matrix of components
 plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
   f_est <- est_dens_i(x_mat)
@@ -91,8 +104,20 @@ plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
   lines(T_out,apply(f_est,2,quantile,0.975),col = 'blue',lty=2)
   # legend(legend_side,c('Post Mean','Post 95% Cred'),
   #       lwd = 2,lty = c(1,2),col = c('black','blue'))
+  
+  add_hist()
+  
+  colvec <- c(rgb(t(col2rgb('black'))),
+              rgb(t(col2rgb('blue')),max = 255),
+              rgb(t(col2rgb('red')),max = 255,alpha = 50))
+  legend('topright',c('Post Mean', '95% Interval', 'Truth'),
+         lty = c(1,2,0), lwd = c(1,1,0),bty = "n",
+         col = colvec,
+         pch = c(NA,NA, 15),
+         pt.cex = 2)
   if(save_pics) dev.off()
 }
+plot_dens_i(X_pred,save_pics = FALSE) #Density
 
 #Estimate the predicted bin probabilities given histogram components X_i
 est_probs_i <- function(X_i){
@@ -129,9 +154,6 @@ create_cond_mats <- function(X_mat_all,lam_mat,ell_mat){
   return(list(cov_inv_mats = cov_inv_mats,inv_vec_mult = inv_vec_mult,
               ell_mat = ell_mat,lam_mat = lam_mat))
 }
-
-
-
 
 #Predict components for calculating predictive distribution of density
 #Essentially integrate them away
@@ -262,12 +284,29 @@ plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE){
   if(save_pics) dev.off() 
 }
 
+#Look at the coefficients, see if the 95% credible interval
+# overlaps with zero
+plot_coefs <- function(xmat){
+  means <- apply(xmat,2,mean)
+  plot(means,pch = 19, col = 'blue', xlab = "Component",ylab = 'Value',
+       main = 'Components 95% Credible Intervals',
+       ylim = c(min(apply(xmat,2,quantile,probs = 0.025)),
+                max(apply(xmat,2,quantile,probs = 0.975))))
+  abline(h = 0,col = 'red')
+  
+  arrows(1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.025),
+         1:dim(xmat)[2], apply(xmat,2,quantile,probs = 0.975), 
+         length=0.05, angle=90, code=3)
+  
+}
+
 ##########
 #Load what you need
 #########
 
-
+load('sampler_vals.Rdata')
 X <- hope_i$X
+apply(hope_i$x_acc,1,mean)
 
 #Extra burnin if necessary
 #extra_burn = min(which(X[,9,]<(-1)))
@@ -278,6 +317,7 @@ ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
 
 #Thinning if necessary
 thin = 500
+#thin = 200
 iters <- 1:dim(X_burn)[1]
 X_thin <- X_burn[!iters%%thin,,]
 lam_thin <- lam_burn[!iters%%thin,]
@@ -289,10 +329,10 @@ X_i <- X_thin[,,i]
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_3_30/'
+meeting_folder <- 'meeting_4_13/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
-suffix = '_holdout_small_r_c'
+suffix = '_old_good'
 
 
 #Look for evidence of non-convergence
@@ -318,6 +358,76 @@ plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = FALSE) #predicted
 ##############################
 ##Scratch work
 
+#Calibration, given those draws from predictive posterior
+get_cal_draws <- function(X_pred){
+  pred_probs <- est_probs_i(X_pred)
+  Y_pred <- apply(pred_probs,2,function(x){
+    return(rmultinom(1,num_counts,x))
+  })
+  return(Y_pred)
+}
+
+cal_qhat <- function(kap, num_cals = 1E3){
+  #Setup
+  auto_reject = FALSE
+  accept <- 0 
+  q_cals <- numeric(num_cals)
+  
+  #Current values
+  q_cur <- runif(1)
+  X_pred_cur <- pred_x(run_cond_mats, d_prime = q_cur, d_cond = d_scaled)
+  p_cur <- apply(est_probs_i(X_pred_cur),1,mean)
+
+  time_start <- proc.time()
+  #Go through loop
+  for(i in 1:num_cals){
+    
+    #Propose new qhat
+    q_st <- rnorm(1,q_cur,kap)
+    if(q_st<0 | q_st > 1) auto_reject = TRUE
+    
+    #predict Y's with qhat
+    X_pred_st <- pred_x(run_cond_mats, d_prime = q_st, d_cond = d_scaled)
+    p_st <- apply(est_probs_i(X_pred_cur),1,mean)
+    
+    #calculate likelihood of predicted Y's compared to actual
+    log_ratio <- dmultinom(Y_new_trunc,prob = p_st,log = TRUE) - 
+      dmultinom(Y_new_trunc,prob = p_cur,log = TRUE) 
+    
+    if(runif(1)<exp(log_ratio) & !auto_reject){
+      p_cur <- p_st
+      q_cur <- q_st
+      accept <- accept + 1
+    }
+    
+    q_cals[i] <- q_cur
+    auto_reject <- FALSE
+    
+    if(!i%%100){
+      flush.console()
+      cat("\r i = ", i, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
+      #print(paste0("t = ", t, ", n = ", n))
+    }    
+  }
+  print(accept/num_cals)
+  return(list(q_cals = q_cals, acc_ratio = accept/num_cals))
+}
+
+cal_try <- cal_qhat(kap = 0.1)
+cal_try$acc_ratio
+
+q_cal <- cal_try$q_cals
+hist(q_cal)
+plot(q_cal,type = 'l')
+
+
+
+#Checking out singularity in C
+for(n in 1:dim(C)[2]){
+  View(round(sweep(C,1,C[,n] + 1E-5,"/"),3))
+}
+
+View(round(sweep(C,1,C[,4],"/"),3))
 
 #Plotting predictive probabilities by the predicted density
 new_t <- vector("list",J)
