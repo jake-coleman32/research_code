@@ -5,6 +5,22 @@ library(TruncatedNormal)
 library(lpSolve)
 library(Matrix)
 
+sig_to_c <- function(sig,r=0.5){
+  return(sig*sqrt(1-r^2)/sqrt(2*r^2))
+}
+c_to_sig <- function(c,r=0.5){
+  return(c*sqrt(2*r^2/(1-r^2)))
+}
+prior_prob <- function(sig,t_st = 0.5,t_min = 0){
+  return(pnorm(-(1/(t_st-t_min))/sig))
+}
+
+needed_sig <- function(prob,r,t_st = 0.5,t_min=0){
+  return(-1/(qnorm(prob)*(t_st-t_min)))
+}
+
+
+
 set.seed(47)
 #Make the underlying data
 dat_alph <- 3
@@ -21,8 +37,8 @@ my_hist <- function(dat,bounds){
   return(bins)
 }
 
-t_star = 1
-t_minus = 0
+t_minus = 0.1
+t_star = 0.6
 
 #bin_size = 0.1
 (alpha <- seq(t_minus,t_star, length = 11))
@@ -74,12 +90,27 @@ coef_mats_cos_only <- function(N){
   C <- matrix(0,N,(J-1))
   for(n in 1:N){
     for(j in 2:J){
-      C[n,j-1] <- sqrt(2)*(t_star-t_minus)*(sin(pi*n*(alpha[j] - t_minus)/(t_star - t_minus)) - 
-                                              sin(pi*n*(alpha[j-1] - t_minus)/(t_star - t_minus)))/(pi*n)
+      C[n,j-1] <- sqrt(2)*(t_star-t_minus)*
+        (sin(pi*n*(alpha[j] - t_minus)/(t_star - t_minus)) - 
+           sin(pi*n*(alpha[j-1] - t_minus)/(t_star - t_minus)))/(pi*n)
     }
   }
   return(C)
 }
+coef_mats_cos_only_odd <- function(N){
+  J <- length(alpha)
+  C <- matrix(0,N,(J-1))
+  for(n in 1:N){
+    for(j in 2:J){
+      C[n,j-1] <- sqrt(2)*(t_star-t_minus)*
+        (sin(pi*(n/2 + 1)*(alpha[j] - t_minus)/(t_star - t_minus)) - 
+           sin(pi*(n/2 + 1)*(alpha[j-1] - t_minus)/(t_star - t_minus)))/(pi*(n/2 + 1))
+    }
+  }
+  return(C)
+  
+}
+
 N <- 20
 
 basis_type = "cos_only"
@@ -105,7 +136,6 @@ if(basis_type=="2pi"){
 if(length(bad_cols)) C <- C[,-bad_cols]
 
 
-round(C,3)
 
 dim(C)
 rankMatrix(C)[1]
@@ -253,28 +283,28 @@ mh_hist_trunc <- function(r = 0.5,iters = 1E4, burnin_prop = 0.1, kap =rep(1E-1,
   return(list(x_mat = x_mat,x_acc = x_acc/(iters + burnin), x_ob=x_ob))
 }
 
-kap_x <- c(1E-2#1
-           ,1#2
-           ,1#3
+kap_x <- c(1E-1#1
+           ,1E-1#2
+           ,1E-1#3
            ,1#4
            ,1#5
            ,1#6
            ,1#7
            ,1#8
-           ,1E-1#9
-           ,1E-1#10,
-           ,1E-1#11,
+           ,1#9
+           ,1#10,
+           ,1#11,
            ,1#12,
            ,1#13,
            ,1#14,
-           ,5#15,
+           ,1#15,
            ,1#16,
             ,1#17,
             ,1#18,
            #            5#19,
 )
 
-res2 <- mh_hist_trunc(iters = 1E4,burnin_prop = 0.3, 
+res2 <- mh_hist_trunc(iters = 1E5,burnin_prop = 0.3, 
                       #kap = rep(1,Nx),
                       kap = kap_x,
                       x_start = "random",
@@ -286,7 +316,7 @@ apply(res2$x_mat,2,mean)
 acf(res2$x_mat[,1])
 
 #Thinning if necessary
-thin = 10
+thin = 20
 iters <- 1:dim(res2$x_mat)[1]
 x_thin <- res2$x_mat[!iters%%thin,]
 
@@ -296,7 +326,8 @@ acf(x_thin[,1])
 
 T_out=seq(t_minus,t_star,length=100)
 
-plot_dens(x_thin,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE)
+plot_dens(x_thin,T_out,save_pics = FALSE,legend_side = 'topright', plot_beta = TRUE,
+          normalize = FALSE)
 add_hist(y)
 abline(h = 0)
 lines(density(x_dat),col = 'green')
@@ -357,7 +388,7 @@ plot_coefs <- function(xmat){
 }
 
 
-est_dens2 <- function(x_mat,T_out=seq(0,t_star,length=20)){
+est_dens2 <- function(x_mat,T_out=seq(0,t_star,length=20),normalize = FALSE){
   f_mat <- matrix(0,dim(x_mat)[1],length(T_out))
   Nx <- dim(x_mat)[2]
   for(t in 1:length(T_out)){
@@ -374,15 +405,19 @@ est_dens2 <- function(x_mat,T_out=seq(0,t_star,length=20)){
       cos_sin_vec <- sqrt(2)*cos(pi*Nz*(T_out[t]-t_minus)/(t_star-t_minus))*r^Nz
     }else(stop("You need to pick a basis type, big fella"))
     
-    f_mat[,t] <- c*x_mat%*%matrix(cos_sin_vec) + gam/(t_star-t_minus)
+    f_mat[,t] <- c*x_mat%*%matrix(cos_sin_vec) + gam/(t_star-t_minus) 
+  }
+  if(normalize){
+    f_mat[which(f_mat<0)] = 0
+    f_mat <-  t(apply(f_mat,1,function(x) gam*x/trapz(T_out,x)))
   }
   return(f_mat)
 }
 
 
-plot_dens <- function(x_mat,T_out, save_pics = FALSE,legend_side = 'topright',
+plot_dens <- function(x_mat,T_out, save_pics = FALSE,legend_side = 'topright', normalize = FALSE,
                       plot_beta = FALSE,...){
-  f_est <- est_dens2(x_mat,T_out = T_out)
+  f_est <- est_dens2(x_mat,T_out = T_out, normalize = normalize)
   mean_est <- apply(f_est,2,mean)
   
   if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
