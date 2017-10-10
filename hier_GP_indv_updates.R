@@ -5,7 +5,22 @@ library(mvtnorm)
 library(dplyr)
 library(caTools)
 library(Matrix)
-library(geoR)
+library(fields)
+
+
+sig_to_c <- function(sig,r=0.5){
+  return(sig*sqrt(1-r^2)/sqrt(2*r^2))
+}
+c_to_sig <- function(c,r=0.5){
+  return(c*sqrt(2*r^2/(1-r^2)))
+}
+prior_prob <- function(sig,t_st = 0.5,t_min = 0){
+  return(pnorm(-(1/(t_st-t_min))/sig))
+}
+
+needed_sig <- function(prob,r,t_st = 0.5,t_min=0){
+  return(-1/(qnorm(prob)*(t_st-t_min)))
+}
 
 
 GP_cov <- function(d,lambda,ell,type = 'matern', nu = 3/2, nugget = 0.){
@@ -13,12 +28,12 @@ GP_cov <- function(d,lambda,ell,type = 'matern', nu = 3/2, nugget = 0.){
   if(type=="sqr.exp"){
     out_mat <- lambda^(-1)*exp(-d_mat^2/ell^2) + nugget*diag(length(d))
   }else if(type=="matern"){
-    out_mat <- lambda^(-1)*matern(d_mat,phi=ell,kappa = nu) + nugget*diag(length(d))
+    out_mat <- lambda^(-1)*Matern(d_mat,range=ell,smoothness = nu) + nugget*diag(length(d))
   }else{
     stop('Wrong covariance function type')
   } 
-
-
+  
+  
   return(out_mat)
 }
 
@@ -28,7 +43,7 @@ GP_cross_cov <- function(d,d_star,lambda,ell,type = 'matern',nu = 3/2){
   if(type=="sqr.exp"){
     out_mat <- lambda^(-1)*exp(-d_mat[inds,-inds]^2/ell^2)
   } else if(type=="matern"){
-    out_mat <- lambda^(-1)*matern(d_mat[inds,-inds],phi = ell, kappa = nu)
+    out_mat <- lambda^(-1)*Matern(d_mat[inds,-inds],range = ell, smoothness = nu)
   }else{ 
     stop('Wrong covariance function type')
   }
@@ -85,6 +100,7 @@ d <- read.table(q_vals_file)[-holdout,1]
 d_new <-read.table(q_vals_file)[holdout,1]
 (d_scaled <- (d-min(d))/(max(d)-min(d)))
 d_new_s <- (d_new-min(d))/(max(d)-min(d))
+t_minus = 0.1
 t_star <- 0.5
 trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
@@ -107,8 +123,13 @@ data$trunc_cols <-trunc_cols
 
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
+<<<<<<< HEAD
 alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
 jitter =FALSE 
+=======
+(alpha <- c(as.numeric(colnames(Y_trunc)),t_star))#Somewhat sketch
+jitter = FALSE
+>>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
 }
@@ -128,18 +149,40 @@ if(save_data|jitter){
 #Parameter things
 params <- list()
 
+<<<<<<< HEAD
 N <- 6 #One fewer than number of bins: the max number for N
+=======
+#N is the top of the summation - Nx will be the number of parameters
+N <- 20 #One fewer than number of bins: the max number for N
+>>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 #More in B matrix than A matrix
 
+basis_type = 'cos'
 
-make_coefs <- function(){
-A <- matrix(0,floor(N/2),J)
-B <- matrix(0,ceiling(N/2),J)
-for(n in 1:floor((N/2))){
-  for(j in 2:(J+1)){
-    A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
-    B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
-  }
+make_coefs <- function(type = 'sin'){
+  #This is the "J" in the function for GP_hist_partial
+  make_C_J <- length(alpha)
+  if(type=='sin'){
+    A <- matrix(0,N,make_C_J-1)
+    B <- matrix(0,N,make_C_J-1)
+    for(n in 1:N){
+      for(j in 2:make_C_J){
+        A[n,j-1] <- t_star*(sin(2*pi*n*alpha[j]/t_star) - sin(2*pi*n*alpha[j-1]/t_star))/(2*pi*n)
+        B[n,j-1] <- t_star*(cos(2*pi*n*alpha[j-1]/t_star) - cos(2*pi*n*alpha[j]/t_star))/(2*pi*n)
+      }
+    }
+    
+    C <- cbind(t(A),t(B))
+  }else if(type=='cos'){
+    C <- matrix(0,N,(make_C_J-1))
+    for(n in 1:N){
+      for(j in 2:make_C_J){
+        C[n,j-1] <- t_star*(sin(pi*n*alpha[j]/(t_star)) - sin(pi*n*alpha[j-1]/t_star))/(pi*n)
+      }
+    }
+    C <- t(C)
+  }else(stop('Need to choose sin or cos for type'))
+  return(C)
 }
 # if(N%%2){
 #   n = ceiling(N/2)
@@ -148,13 +191,38 @@ for(n in 1:floor((N/2))){
 #   }
 #}
 
-return(list(A=A,B=B))
+C <- make_coefs(type= 'cos')
+apply(C,2,sum)
+
+#Get the columns that have all zeros
+(bad_cols <- which(apply(C,2,function(x){sum(abs(x)<1E-5)})==dim(C)[1]))
+if(length(bad_cols)) C <- C[,-bad_cols]
+
+#Nx is the number of parameters
+(Nx <- dim(C)[2])
+(bin_sizes  <- (alpha-lag(alpha))[-1])
+
+r = 0.95
+(sig <- needed_sig(1E-5,t_st = t_star, t_min = t_minus))
+(c <- sig_to_c(sig = sig,r=r))
+
+#This won't cause problems for the cos-only vector, because we'll never use Nw
+##and bad_cols will only be in 1:N
+Nz <- Nw <-  1:N
+if(length(bad_cols)){
+  bad_z <- bad_cols[which(bad_cols<=N)]
+  bad_w <- (bad_cols-N)[which(bad_cols>N)]
+  if(length(bad_z)) Nz <- Nz[-bad_z]
+  if(length(bad_w)) Nw <- Nw[-bad_w]
 }
 
-A <- make_coefs()$A
-B <- make_coefs()$B
-C <- cbind(t(A),t(B))
+if(basis_type == 'sin'){
+  (r_vec <- c*c(r^Nz,r^Nw))
+}else if(basis_type=='cos'){
+  (r_vec <- c*r^Nz)
+}else stop('You got basis problems, big fella')
 
+<<<<<<< HEAD
 #Adjust because sin(5pint) = 0 for all n
 if(N>=10){
   C <- C[,-5]
@@ -169,26 +237,34 @@ pnorm(-1/sqrt((2*c^2*r^2/(1-r^2))))
 Nz <- 1:floor(N/2)
 Nw <- 1:ceiling(N/2)
 r_vec <- c(c*r^Nz,c*r^Nw)
+=======
+>>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 R <- diag(r_vec)
 
 params$c <- c
-params$N <- N
+params$Nx <- Nx
 params$r <- r
 params$Nz <- Nz
 params$Nw <- Nw
 params$r_vec <- r_vec
 params$C <- C
+params$basis_type = basis_type
 
 
+<<<<<<< HEAD
 run_description <- "r_vec is c*r^n, with r =0.5,c=0.3, N = 6,smaller proposal jumps"
 print(run_description)
+=======
+(run_description <- paste0("r_vec is c*r^n, with r = ",r,", c=",round(c,3),
+                           ", basis type = ",basis_type, ", Nx = ",Nx))
+>>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 write(run_description,file="model_description.txt")
 
 
 #Check the ranks of our coefficient matrices
-print(paste("N =",N))
+print(paste("Nx =",Nx))
 print(paste("r =",r))
-print(paste("c =",c))
+print(paste("c =",round(c,3)))
 
 #Starting place for X
 #Use fact that the sum of probabilities add to one
@@ -201,58 +277,58 @@ print(paste("c =",c))
 
 #Different starting points
 #X_mle <- sqrt(0.5)*solve(R)%*%solve(C_trim)%*%(P_hat - replicate(I,b[-j_trim]/t_star))
-X_0 <- replicate(I,rep(0,N))
+#X_0 <- replicate(I,rep(0,Nx))
 
 
 
 #Priors
-lam_a <- rep(1,N)
-lam_b <- rep(1,N)
+lam_a <- rep(1,Nx)
+lam_b <- rep(1,Nx)
 
-ell_a <- rep(1,N)
-ell_b <- rep(1,N)
+ell_a <- rep(1,Nx)
+ell_b <- rep(1,Nx)
 
 
 print('start setup')
 hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
-                         delta_lam = rep(0,N),
-                         delta_ell = rep(0.3,N),
-                         X_kap = replicate(N,rep(1E-1,I)), #column n is diagonal of proposal
+                         delta_lam = rep(0,Nx),
+                         delta_ell = rep(0.3,Nx),
+                         X_kap = replicate(Nx,rep(5E-1,I)), #column n is diagonal of proposal
                          #for GP n
                          verbose = FALSE
 ){
   burnin <- iters*burnin_prop
   
-  X_array <- array(0,dim = c(iters,N,I)) #Columns are GPs, rows are histograms
-  lam_mat <- ell_mat <- matrix(0,iters,N)
+  X_array <- array(0,dim = c(iters,Nx,I)) #Columns are GPs, rows are histograms
+  lam_mat <- ell_mat <- matrix(0,iters,Nx)
   
   #Current values
-  X_cur <- matrix(rnorm(N*I),N,I) #currently N x I
-  ell_cur <- rgamma(N,ell_a,ell_b)
-  lam_cur <- rep(1,N)
+  X_cur <- matrix(rnorm(Nx*I),Nx,I) #currently Nx x I
+  ell_cur <- rgamma(Nx,ell_a,ell_b)
+  lam_cur <- rep(1,Nx)
   
   p_cur <- t(sqrt(2)*C%*%sweep(X_cur,1,r_vec,"*") + replicate(I,b/t_star))
   
   if(sum(p_cur<0)) stop("Unlucky, try again")
   l_cur <- sum(Y_trunc*log(p_cur))# + sum(Y_trunc[,j_trim]*log(1-apply(p_cur,1,sum)))
   
-  ell_acc <- lam_acc  <- numeric(N)
-  x_acc <- matrix(0,N,I)
+  ell_acc <- lam_acc  <- numeric(Nx)
+  x_acc <- matrix(0,Nx,I)
   
   time_start <- proc.time()
   for(t in 1:(burnin + iters)){
-    for(n in 1:N){
+    for(n in 1:Nx){
       if(!t%%100){
         if(verbose){
           flush.console()
-          cat("\r t = ", t, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
+          cat("\r t =", t, "Elapsed Time: ",as.numeric((proc.time() - time_start)[3])) 
           #print(paste0("t = ", t, ", n = ", n))
         }
       }
       
       #Update X_n
       auto_reject = FALSE
-      x_cur_n <- X_cur[n,]
+      (x_cur_n <- X_cur[n,])
       
       #Need to find upper and lower bounds for each histogram
       #  l <- -Inf*(numeric(I) + 1)
@@ -294,8 +370,8 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
         
         (x_cond <- x_cur_n[-i])
         (sig_11 = 1/lam_cur[n])
-        (sig_22 <- GP_cov(d_scaled[-i],lam_cur[n],ell_cur[n],nugget = 1E-5))
-        (sig_12 <- t(matrix(GP_cross_cov(d_scaled[i],d_scaled[-i],lam_cur[n],ell_cur[n]))))
+        (sig_22 <- GP_cov(type = 'sqr.exp', d_scaled[-i],lam_cur[n],ell_cur[n],nugget = 1E-5))
+        (sig_12 <- t(matrix(GP_cross_cov(type = 'sqr.exp', d_scaled[i],d_scaled[-i],lam_cur[n],ell_cur[n]))))
         
         (prior_mean = sig_12%*%(solve(sig_22)%*%x_cond))
         (prior_var = sig_11 - sig_12%*%solve(sig_22)%*%t(sig_12))
@@ -347,8 +423,8 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
       
       ratio <- 
         #"Likelihood" - X prior
-        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_st,nugget = 1E-8),log = TRUE) -
-        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
+        dmvnorm(X_cur[n,],sigma = GP_cov(type = 'sqr.exp', d_scaled,lam_cur[n],ell_st,nugget = 1E-8),log = TRUE) -
+        dmvnorm(X_cur[n,],sigma = GP_cov(type = 'sqr.exp', d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
         
         #Priors
         dgamma(ell_st,ell_a[n],ell_b[n],log = TRUE) -
@@ -371,8 +447,8 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
       
       ratio <- 
         #"Likelihood" - X prior
-        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_st,ell_cur[n],nugget = 1E-8),log = TRUE) -
-        dmvnorm(X_cur[n,],sigma = GP_cov(d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
+        dmvnorm(X_cur[n,],sigma = GP_cov(type = 'sqr.exp', d_scaled,lam_st,ell_cur[n],nugget = 1E-8),log = TRUE) -
+        dmvnorm(X_cur[n,],sigma = GP_cov(type = 'sqr.exp', d_scaled,lam_cur[n],ell_cur[n],nugget = 1E-8), log = TRUE) +
         
         #Priors
         dgamma(lam_st,lam_a[n],lam_b[n],log = TRUE)-
@@ -406,6 +482,7 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
 print('pre-X_kap')
 
 X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
+<<<<<<< HEAD
 						rep(1E-3,I),#1
 						rep(1E-3,I),#2
 						rep(1E-3,I), #3
@@ -436,3 +513,39 @@ save(hope_i, file = "sampler_vals.Rdata")
 
 
 
+=======
+  rep(1E-1,I),#1
+  rep(1E-1,I),#2
+  rep(1E-1,I), #3
+  rep(1E-1,I), #4
+  rep(1E-1,I),#5
+  rep(4E-1,I),#6
+  rep(3E-1,I),#7
+  rep(3E-1,I),#8
+  rep(3E-1,I),#9
+  rep(5E-1,I),#10
+  rep(5E-1,I),#11
+  rep(5E-1,I),#12
+  rep(5E-1,I),#13
+  rep(1,I),#14
+  rep(1,I),#15
+  rep(3,I),#16
+  rep(3,I),#17
+  rep(5,I)))#18
+  
+  
+  params$X_kap <- X_kap_run
+  
+  #Save the parameters to use later
+  save(params,file = "params_list.Rdata")
+  
+  start_t <- proc.time()
+  hope_i <- hier_gp_mh_i(iters = 3E2,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap_run)
+  (proc.time() - start_t)[3]/60
+  write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
+  
+  save(hope_i, file = "sampler_vals.Rdata")
+  
+  
+  
+>>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
