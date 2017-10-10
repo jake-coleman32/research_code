@@ -108,7 +108,7 @@ data$trunc_cols <-trunc_cols
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
 alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
-jitter = TRUE
+jitter =FALSE 
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
 }
@@ -121,14 +121,14 @@ data$b <- b
 
 #Save the list of data objects 
 save_data = FALSE #Change this if you change something
-if(save_data){
+if(save_data|jitter){
   save(data, file = "data_list.Rdata")
 }
 
 #Parameter things
 params <- list()
 
-N <- 14 #One fewer than number of bins: the max number for N
+N <- 6 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 
 
@@ -161,8 +161,8 @@ if(N>=10){
   N <- N-1
 }
 
-r <- 0.8
-c <- .1
+r <- 0.5
+c <- 0.3
 r^ceiling(N/2)
 pnorm(-1/sqrt((2*c^2*r^2/(1-r^2))))
 
@@ -180,7 +180,8 @@ params$r_vec <- r_vec
 params$C <- C
 
 
-run_description <- "r_vec is c*r^n, with r =0.8,c=0.1. N = 13"
+run_description <- "r_vec is c*r^n, with r =0.5,c=0.3, N = 6,smaller proposal jumps"
+print(run_description)
 write(run_description,file="model_description.txt")
 
 
@@ -212,7 +213,7 @@ ell_a <- rep(1,N)
 ell_b <- rep(1,N)
 
 
-
+print('start setup')
 hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
                          delta_lam = rep(0,N),
                          delta_ell = rep(0.3,N),
@@ -402,31 +403,32 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-
+print('pre-X_kap')
 
 X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
-						rep(1E-2,I),#1
-						rep(1E-2,I),#2
-						rep(1,I), #3
-						rep(1,I), #4
-						rep(1,I),#5
-						rep(1,I),#6
-						rep(1E-2,I),#7
-						rep(1E-2,I),#8
-						rep(1E-2,I),#9
-						rep(1,I),#10
-						rep(1E-2,I),#11
-						rep(1,I),#12
-						rep(1E-1,I))) #13
+						rep(1E-3,I),#1
+						rep(1E-3,I),#2
+						rep(1E-3,I), #3
+						rep(1E-3,I), #4
+						rep(1E-3,I),#5
+						rep(1E-3,I)#,#6
+					#	rep(1E-2,I),#7
+					#	rep(1E-2,I),#8
+					#	rep(1E-2,I),#9
+					#	rep(1,I),#10
+					#	rep(1E-2,I),#11
+					#	rep(1,I),#12
+					#	rep(1E-1,I)) #13
+))
 
 
 params$X_kap <- X_kap_run
 
 #Save the parameters to use later
 save(params,file = "params_list.Rdata")
-
+print('starting run')
 start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 3E5,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap)
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
 write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
