@@ -72,7 +72,7 @@ jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAP
 jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
-on_comp = FALSE
+on_comp = TRUE
 #Create new directory based on date/time, change to it
 if(on_comp){
   model_time = Sys.time()
@@ -84,7 +84,7 @@ if(on_comp){
 }
 
 
-current_path = jet_path_lap
+current_path = jet_path_comp
 
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
@@ -123,13 +123,11 @@ data$trunc_cols <-trunc_cols
 
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
-<<<<<<< HEAD
 alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
 jitter =FALSE 
-=======
+
 (alpha <- c(as.numeric(colnames(Y_trunc)),t_star))#Somewhat sketch
 jitter = FALSE
->>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
 }
@@ -149,12 +147,10 @@ if(save_data|jitter){
 #Parameter things
 params <- list()
 
-<<<<<<< HEAD
 N <- 6 #One fewer than number of bins: the max number for N
-=======
 #N is the top of the summation - Nx will be the number of parameters
+
 N <- 20 #One fewer than number of bins: the max number for N
->>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 #More in B matrix than A matrix
 
 basis_type = 'cos'
@@ -222,24 +218,7 @@ if(basis_type == 'sin'){
   (r_vec <- c*r^Nz)
 }else stop('You got basis problems, big fella')
 
-<<<<<<< HEAD
-#Adjust because sin(5pint) = 0 for all n
-if(N>=10){
-  C <- C[,-5]
-  N <- N-1
-}
 
-r <- 0.5
-c <- 0.3
-r^ceiling(N/2)
-pnorm(-1/sqrt((2*c^2*r^2/(1-r^2))))
-
-Nz <- 1:floor(N/2)
-Nw <- 1:ceiling(N/2)
-r_vec <- c(c*r^Nz,c*r^Nw)
-=======
->>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
-R <- diag(r_vec)
 
 params$c <- c
 params$Nx <- Nx
@@ -251,13 +230,8 @@ params$C <- C
 params$basis_type = basis_type
 
 
-<<<<<<< HEAD
-run_description <- "r_vec is c*r^n, with r =0.5,c=0.3, N = 6,smaller proposal jumps"
-print(run_description)
-=======
 (run_description <- paste0("r_vec is c*r^n, with r = ",r,", c=",round(c,3),
                            ", basis type = ",basis_type, ", Nx = ",Nx))
->>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
 write(run_description,file="model_description.txt")
 
 
@@ -482,38 +456,6 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
 print('pre-X_kap')
 
 X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
-<<<<<<< HEAD
-						rep(1E-3,I),#1
-						rep(1E-3,I),#2
-						rep(1E-3,I), #3
-						rep(1E-3,I), #4
-						rep(1E-3,I),#5
-						rep(1E-3,I)#,#6
-					#	rep(1E-2,I),#7
-					#	rep(1E-2,I),#8
-					#	rep(1E-2,I),#9
-					#	rep(1,I),#10
-					#	rep(1E-2,I),#11
-					#	rep(1,I),#12
-					#	rep(1E-1,I)) #13
-))
-
-
-params$X_kap <- X_kap_run
-
-#Save the parameters to use later
-save(params,file = "params_list.Rdata")
-print('starting run')
-start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
-write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
-
-save(hope_i, file = "sampler_vals.Rdata")
-
-
-
-
-=======
   rep(1E-1,I),#1
   rep(1E-1,I),#2
   rep(1E-1,I), #3
@@ -532,20 +474,19 @@ save(hope_i, file = "sampler_vals.Rdata")
   rep(3,I),#16
   rep(3,I),#17
   rep(5,I)))#18
-  
-  
-  params$X_kap <- X_kap_run
-  
-  #Save the parameters to use later
-  save(params,file = "params_list.Rdata")
-  
-  start_t <- proc.time()
-  hope_i <- hier_gp_mh_i(iters = 3E2,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap_run)
-  (proc.time() - start_t)[3]/60
-  write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
-  
-  save(hope_i, file = "sampler_vals.Rdata")
-  
-  
-  
->>>>>>> 4d75d30b8539a12437dfdc6e9087377a673f0c76
+
+
+params$X_kap <- X_kap_run
+
+#Save the parameters to use later
+save(params,file = "params_list.Rdata")
+print('starting run')
+start_t <- proc.time()
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
+write(paste((proc.time() - start_t)[3]/60,'minutes'),file = 'model_time.txt')
+
+save(hope_i, file = "sampler_vals.Rdata")
+
+
+
+
