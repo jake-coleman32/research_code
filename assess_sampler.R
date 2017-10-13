@@ -1,9 +1,16 @@
+library(truncnorm)
+library(mvtnorm)
+library(dplyr)
+library(caTools)
+library(Matrix)
+library(fields)
+
 #File to show pictures/look at plots easily
 setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
 load('data_list.Rdata')
 
 #Change to what you need
-setwd('good_r_p5_c_1/')
+setwd('N_18_cos_only//')
 load('params_list.Rdata')
 #######################
 #Plot functions
@@ -11,32 +18,46 @@ load('params_list.Rdata')
 list2env(params,envir = parent.frame())
 list2env(data,envir = parent.frame())
 
-GP_cov <- function(d,lambda,ell,nugget = 0.){
+GP_cov <- function(d,lambda,ell,type = 'sqr.exp', nu = 3/2, nugget = 0.){
+  d_mat <- as.matrix(dist(d))
+  if(type=="sqr.exp"){
+    out_mat <- lambda^(-1)*exp(-d_mat^2/ell^2) + nugget*diag(length(d))
+  }else if(type=="matern"){
+    out_mat <- lambda^(-1)*Matern(d_mat,range=ell,smoothness = nu) + nugget*diag(length(d))
+  }else{
+    stop('Wrong covariance function type')
+  } 
   
-  out_mat <- lambda^(-1)*exp(-as.matrix(dist(d))^2/ell^2) + nugget*diag(length(d))
   
   return(out_mat)
 }
 
-GP_cross_cov <- function(d,d_star,lambda,ell){
+GP_cross_cov <- function(d,d_star,lambda,ell,type = 'sqr.exp',nu = 3/2){
   inds <- 1:length(d)
-  
-  out_mat <- lambda^(-1)*exp(-as.matrix(dist(c(d,d_star)))[inds,-inds]^2/ell^2)
+  d_mat <- as.matrix(dist(c(d,d_star)))
+  if(type=="sqr.exp"){
+    out_mat <- lambda^(-1)*exp(-d_mat[inds,-inds]^2/ell^2)
+  } else if(type=="matern"){
+    out_mat <- lambda^(-1)*Matern(d_mat[inds,-inds],range = ell, smoothness = nu)
+  }else{ 
+    stop('Wrong covariance function type')
+  }
   
   return(out_mat)
 }
+
 
 #Trace plots for components of a given histogram
 plot_traces <- function(x_hist,save_pics = FALSE){
   
-  for(n in 1:N){
-    if(n<=floor(N/2)){
+  for(n in 1:Nx){
+    if(n<=length(Nz)){
       var_type = 'Z'
       index = n
     }
     else{
       var_type = 'W'
-      index = n-ceiling(N/2) 
+      index = n-length(Nz)
     }
     if(save_pics) pdf(paste0(path,var_type,n,suffix,'.pdf'))
     plot(x_hist[,n],type = 'l',ylab = bquote(.(var_type)[.(index)]),
@@ -49,7 +70,7 @@ plot_traces <- function(x_hist,save_pics = FALSE){
 #Ell and Lambda parameter trace plots
 #Currently lambda set to 1, so only plotting ell
 plot_thetas <- function(save_pics = FALSE){
-  for(n in 1:N){
+  for(n in 1:Nx){
     #Lambda
     #if(save_pics) pdf(file = paste0(path,'lam',n,suffix,'.pdf'))
     #plot(lam_thin[,n],xlab = "Iteration",ylab = bquote(lambda[.(n)]),type = 'l',
@@ -66,13 +87,17 @@ plot_thetas <- function(save_pics = FALSE){
 
 #Estimate density with mean and credible intervals, given a histogram's parameters
 #X_mat should be T x N matrix
-est_dens_i <- function(x_mat){
+est_dens_i <- function(x_mat,basis = 'sin'){
   f_mat <-matrix(0,dim(x_mat)[1],length(T_out))
   Nx <- dim(x_mat)[2]
   for(t in 1:length(T_out)){
-    cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)
-    sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)
-    cos_sin_vec <- c(cos_vec,sin_vec)*r_vec
+    if(basis=='sin'){
+      cos_vec <- cos(2*pi*T_out[t]*Nz/t_star)
+      sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)
+      cos_sin_vec <- c(cos_vec,sin_vec)*r_vec
+    }else if(basis=='cos'){
+      cos_sin_vec <- sqrt(2)*cos(pi*Nz*(T_out[t])/(t_star))*r_vec
+    }
     
     f_mat[,t] <- sqrt(2)*t(matrix(cos_sin_vec))%*%t(x_mat) + gam/t_star
   }
@@ -91,8 +116,8 @@ add_hist <- function(Y = Y_new_trunc,add = TRUE){
 }
 
 #Plot the predicted density, given the T x N matrix of components
-plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
-  f_est <- est_dens_i(x_mat)
+plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,legend_side = 'topright',...){
+  f_est <- est_dens_i(x_mat,basis = basis)
   mean_est <- apply(f_est,2,mean)
   
   if(save_pics) pdf(paste0(meeting_parent,meeting_folder,'mh_dens',suffix,'.pdf'))
@@ -117,7 +142,7 @@ plot_dens_i <- function(x_mat, save_pics = FALSE,legend_side = 'topright',...){
          pt.cex = 2)
   if(save_pics) dev.off()
 }
-plot_dens_i(X_pred,save_pics = FALSE) #Density
+plot_dens_i(X_pred,basis = basis_type, save_pics = FALSE) #Density
 
 #Estimate the predicted bin probabilities given histogram components X_i
 est_probs_i <- function(X_i){
@@ -168,10 +193,10 @@ pred_x <- function(cond_mats, d_prime, d_cond=d_scaled, verbose = FALSE){
   ell = cond_mats$ell_mat
   
   n_iters <- length(sig_22_inv_list[[1]])
-  pred_components <- matrix(0,n_iters,N)
+  pred_components <- matrix(0,n_iters,Nx)
   
   
-  for(n in 1:N){
+  for(n in 1:Nx){
     pred_mean <- pred_var <- n_iters
     time_start <- proc.time()
     for(t in 1:n_iters){
@@ -243,7 +268,7 @@ resid_prob_comp <- function(X_pred,save_pics = FALSE){
 #Plotting the data points, connecting bins of same histogram
 #Marking the holdout sample
 plot_true_bins <- function(save_pics = FALSE){
-  cols = rainbow(I)
+  cols = heat.colors(I)
   if(save_pics) pdf(file = paste0(path,'all_data',suffix,'.pdf'))
   plot(as.numeric(colnames(Y_trunc)),
        Y_trunc[1,]/num_counts,col = cols[1],type = 'l',
@@ -329,10 +354,10 @@ X_i <- X_thin[,,i]
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_4_13/'
+meeting_folder <- 'meeting_10_12/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
-suffix = '_old_good'
+suffix = '_cos_only'
 
 
 #Look for evidence of non-convergence
@@ -347,7 +372,7 @@ system.time(X_pred <- pred_x(run_cond_mats, d_prime = d_new_s, d_cond = d_scaled
 gam=1
 T_out=seq(0,t_star,length=101)
 
-plot_dens_i(X_pred,save_pics = FALSE) #Density
+plot_dens_i(X_pred,basis=basis_type, save_pics = FALSE) #Density
 bin_prob_comp(X_pred = X_pred,save_pics = FALSE) #Bin probs
 resid_prob_comp(X_pred = X_pred,save_pics = FALSE) #Residuals
 
@@ -377,7 +402,7 @@ cal_qhat <- function(kap, num_cals = 1E3){
   q_cur <- runif(1)
   X_pred_cur <- pred_x(run_cond_mats, d_prime = q_cur, d_cond = d_scaled)
   p_cur <- apply(est_probs_i(X_pred_cur),1,mean)
-
+  
   time_start <- proc.time()
   #Go through loop
   for(i in 1:num_cals){
