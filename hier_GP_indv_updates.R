@@ -72,7 +72,7 @@ jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAP
 jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
 hist_folder <- "q_dat_100k/"
 
-on_comp = FALSE
+on_comp = TRUE
 #Create new directory based on date/time, change to it
 if(on_comp){
   model_time = Sys.time()
@@ -84,7 +84,7 @@ if(on_comp){
 }
 
 
-current_path = jet_path_lap
+current_path = jet_path_comp
 
 q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
 
@@ -123,6 +123,9 @@ data$trunc_cols <-trunc_cols
 
 I <- dim(Y)[1]
 J <- dim(Y_trunc)[2]
+alpha <- c(as.numeric(colnames(Y_trunc)),t_star)#Somewhat sketch
+jitter =FALSE 
+
 (alpha <- c(as.numeric(colnames(Y_trunc)),t_star))#Somewhat sketch
 jitter = FALSE
 if(jitter){
@@ -137,14 +140,16 @@ data$b <- b
 
 #Save the list of data objects 
 save_data = FALSE #Change this if you change something
-if(save_data){
+if(save_data|jitter){
   save(data, file = "data_list.Rdata")
 }
 
 #Parameter things
 params <- list()
 
+N <- 6 #One fewer than number of bins: the max number for N
 #N is the top of the summation - Nx will be the number of parameters
+
 N <- 20 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 
@@ -213,7 +218,7 @@ if(basis_type == 'sin'){
   (r_vec <- c*r^Nz)
 }else stop('You got basis problems, big fella')
 
-R <- diag(r_vec)
+
 
 params$c <- c
 params$Nx <- Nx
@@ -258,7 +263,7 @@ ell_a <- rep(1,Nx)
 ell_b <- rep(1,Nx)
 
 
-
+print('start setup')
 hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
                          delta_lam = rep(0,Nx),
                          delta_ell = rep(0.3,Nx),
@@ -448,7 +453,7 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
               ell_acc = ell_acc/(iters+burnin)))
 }
 
-
+print('pre-X_kap')
 
 X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
   rep(1E-1,I),#1
@@ -469,19 +474,19 @@ X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
   rep(3,I),#16
   rep(3,I),#17
   rep(5,I)))#18
-  
-  
-  params$X_kap <- X_kap_run
-  
-  #Save the parameters to use later
-  save(params,file = "params_list.Rdata")
-  
-  start_t <- proc.time()
-  hope_i <- hier_gp_mh_i(iters = 3E2,verbose = TRUE, burnin_prop = 0.2,X_kap = X_kap_run)
-  (proc.time() - start_t)[3]/60
-  write(paste((proc.time() - start_t)[3],'seconds'),file = 'model_time.txt')
-  
-  save(hope_i, file = "sampler_vals.Rdata")
-  
-  
-  
+
+
+params$X_kap <- X_kap_run
+
+#Save the parameters to use later
+save(params,file = "params_list.Rdata")
+print('starting run')
+start_t <- proc.time()
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
+write(paste((proc.time() - start_t)[3]/60,'minutes'),file = 'model_time.txt')
+
+save(hope_i, file = "sampler_vals.Rdata")
+
+
+
+
