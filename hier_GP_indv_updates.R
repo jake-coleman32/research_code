@@ -150,7 +150,7 @@ params <- list()
 N <- 10 #One fewer than number of bins: the max number for N
 #N is the top of the summation - Nx will be the number of parameters
 
-N <- 20 #One fewer than number of bins: the max number for N
+#N <- 20 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 
 
@@ -483,7 +483,7 @@ params$X_kap <- X_kap_run
 save(params,file = "params_list.Rdata")
 print('starting run')
 start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 5E3,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
+hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
 write(paste((proc.time() - start_t)[3]/60,'minutes'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
