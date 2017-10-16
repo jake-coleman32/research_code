@@ -100,7 +100,7 @@ d <- read.table(q_vals_file)[-holdout,1]
 d_new <-read.table(q_vals_file)[holdout,1]
 (d_scaled <- (d-min(d))/(max(d)-min(d)))
 d_new_s <- (d_new-min(d))/(max(d)-min(d))
-t_minus = 0.1
+t_minus = 0
 t_star <- 0.5
 trunc_cols <- which(as.numeric(colnames(Y))<t_star)
 Y_trunc <- Y[,trunc_cols]
@@ -131,7 +131,7 @@ jitter = FALSE
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
 }
-b <- (alpha - lag(alpha))[-1]
+(b <- (alpha - lag(alpha))[-1])
 
 data$I <- I
 data$J <- J
@@ -147,13 +147,12 @@ if(save_data|jitter){
 #Parameter things
 params <- list()
 
-N <- 6 #One fewer than number of bins: the max number for N
+N <- 10 #One fewer than number of bins: the max number for N
 #N is the top of the summation - Nx will be the number of parameters
 
 N <- 20 #One fewer than number of bins: the max number for N
 #More in B matrix than A matrix
 
-basis_type = 'cos'
 
 make_coefs <- function(type = 'sin'){
   #This is the "J" in the function for GP_hist_partial
@@ -187,7 +186,9 @@ make_coefs <- function(type = 'sin'){
 #   }
 #}
 
-C <- make_coefs(type= 'cos')
+basis_type = 'cos'
+
+C <- make_coefs(type= basis_type)
 apply(C,2,sum)
 
 #Get the columns that have all zeros
@@ -456,25 +457,25 @@ hier_gp_mh_i <- function(iters = 1E4, burnin_prop = 0.1,
 print('pre-X_kap')
 
 X_kap_run = matrix(nrow = I, byrow = FALSE,data = c(
-  rep(1E-1,I),#1
-  rep(1E-1,I),#2
-  rep(1E-1,I), #3
-  rep(1E-1,I), #4
-  rep(1E-1,I),#5
-  rep(4E-1,I),#6
-  rep(3E-1,I),#7
-  rep(3E-1,I),#8
-  rep(3E-1,I),#9
-  rep(5E-1,I),#10
-  rep(5E-1,I),#11
-  rep(5E-1,I),#12
-  rep(5E-1,I),#13
-  rep(1,I),#14
-  rep(1,I),#15
-  rep(3,I),#16
-  rep(3,I),#17
-  rep(5,I)))#18
-
+  rep(5E-2,I)#1
+  ,rep(1E-1,I)#2
+  ,rep(1E-1,I) #3
+  ,rep(1E-1,I) #4
+  ,rep(1E-1,I)#5
+  ,rep(1E-1,I)#6
+  ,rep(1E-1,I)#7
+  ,rep(1E-1,I)#8
+  ,rep(1E-1,I)##9
+  # ,rep(5E-1,I)#10
+  # ,rep(5E-1,I)#11
+  # ,rep(5E-1,I)#12
+  # ,rep(5E-1,I)#13
+  # ,rep(1,I)#14
+  # ,rep(1,I)#15
+  # ,rep(3,I)#16
+  # ,rep(3,I)#17
+  # ,rep(5,I)))#18
+))
 
 params$X_kap <- X_kap_run
 
@@ -482,7 +483,7 @@ params$X_kap <- X_kap_run
 save(params,file = "params_list.Rdata")
 print('starting run')
 start_t <- proc.time()
-hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
+hope_i <- hier_gp_mh_i(iters = 5E3,verbose = TRUE, burnin_prop = 0.4,X_kap = X_kap_run)
 write(paste((proc.time() - start_t)[3]/60,'minutes'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
