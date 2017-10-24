@@ -10,7 +10,7 @@ setwd('/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/long_run/')
 load('data_list.Rdata')
 
 #Change to what you need
-setwd('N_18_cos_only//')
+setwd('N_9_cos_only/')
 load('params_list.Rdata')
 #######################
 #Plot functions
@@ -96,7 +96,7 @@ est_dens_i <- function(x_mat,basis = 'sin'){
       sin_vec <- sin(2*pi*T_out[t]*Nw/t_star)
       cos_sin_vec <- c(cos_vec,sin_vec)*r_vec
     }else if(basis=='cos'){
-      cos_sin_vec <- sqrt(2)*cos(pi*Nz*(T_out[t])/(t_star))*r_vec
+      cos_sin_vec <- cos(pi*Nz*(T_out[t])/(t_star))*r_vec
     }
     
     f_mat[,t] <- sqrt(2)*t(matrix(cos_sin_vec))%*%t(x_mat) + gam/t_star
@@ -142,7 +142,7 @@ plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,legend_side = 'to
          pt.cex = 2)
   if(save_pics) dev.off()
 }
-plot_dens_i(X_pred,basis = basis_type, save_pics = FALSE) #Density
+#plot_dens_i(X_pred,basis = basis_type, save_pics = FALSE) #Density
 
 #Estimate the predicted bin probabilities given histogram components X_i
 est_probs_i <- function(X_i){
@@ -332,6 +332,7 @@ plot_coefs <- function(xmat){
 load('sampler_vals.Rdata')
 X <- hope_i$X
 apply(hope_i$x_acc,1,mean)
+dim(X)
 
 #Extra burnin if necessary
 #extra_burn = min(which(X[,9,]<(-1)))
@@ -341,8 +342,8 @@ lam_burn <- hope_i$lam[extra_burn:dim(X)[1],]
 ell_burn <- hope_i$ell[extra_burn:dim(X)[1],]
 
 #Thinning if necessary
-thin = 500
-#thin = 200
+#thin = 500
+thin = 200
 iters <- 1:dim(X_burn)[1]
 X_thin <- X_burn[!iters%%thin,,]
 lam_thin <- lam_burn[!iters%%thin,]
@@ -351,18 +352,20 @@ ell_thin <- ell_burn[!iters%%thin,]
 #Which in-sample histogram to look at
 i <- 4
 X_i <- X_thin[,,i]
+dim(X_i)
+effectiveSize(X_i)
 
 
 meeting_parent <- '/Users/Jake/Dropbox/Research/Computer_Emulation/meetings/2017/'
-meeting_folder <- 'meeting_10_12/'
+meeting_folder <- 'meeting_10_26/'
 path <- paste0(meeting_parent,meeting_folder)
 save_pics = FALSE
 suffix = '_cos_only'
 
 
 #Look for evidence of non-convergence
-plot_traces(x_hist = X_i,save_pics = FALSE)
-plot_thetas(save_pics = FALSE)
+plot_traces(x_hist = X_i,save_pics = save_pics)
+plot_thetas(save_pics = save_pics)
 
 #Get predictive Xs
 run_cond_mats <- create_cond_mats(X_mat_all = X_thin,lam_mat = lam_thin,ell_mat = ell_thin)
@@ -372,12 +375,13 @@ system.time(X_pred <- pred_x(run_cond_mats, d_prime = d_new_s, d_cond = d_scaled
 gam=1
 T_out=seq(0,t_star,length=101)
 
-plot_dens_i(X_pred,basis=basis_type, save_pics = FALSE) #Density
-bin_prob_comp(X_pred = X_pred,save_pics = FALSE) #Bin probs
-resid_prob_comp(X_pred = X_pred,save_pics = FALSE) #Residuals
+basis_type = 'cos'
+plot_dens_i(X_pred,basis=basis_type, save_pics = save_pics) #Density
+bin_prob_comp(X_pred = X_pred,save_pics = save_pics) #Bin probs
+resid_prob_comp(X_pred = X_pred,save_pics = save_pics) #Residuals
 
-plot_true_bins(save_pics = FALSE)#True bins
-plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = FALSE) #predicted bins
+plot_true_bins(save_pics = save_pics)#True bins
+plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = save_pics) #predicted bins
 
 
 ##############################
