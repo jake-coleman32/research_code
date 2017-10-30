@@ -19,8 +19,36 @@ load('params_list.Rdata')
 #######################
 #Plot functions
 ##########################
+
+###Load parameters
 list2env(params,envir = parent.frame())
+# c - constant in r_vec: c*r^n
+# Nx - total number of coefficient parameters per histogram
+# r - ratio in r_vec: c*r^n
+# Nz - index vector of coefficients to include for cosine basis values
+# Nw - index vector of coefficients to include for sine basis value
+# C - J x Nx vector of integrals of basis coefficients across bins
+# basis_type - character of "sin" or "cos" determining which basis to use
+# X_kap - I x Nx matrix of individual MH sigma tuning values
+
+
+###Load data - shouldn't change between runs
 list2env(data,envir = parent.frame())
+# num_counts - number of total counts in histogram
+# holdout - which q_hat was held out in training GP
+# Y - all data with all q_hats
+# Y_new - Y[holdout, ]
+# Y_trunc - Y[-holdout,], truncated to t_star (0.5, because the data stops there)
+# Y_new_trunc - Y_new truncated to t_star (0.5)
+# t_star - truncation value on A_j - data only goes to 0.5 here
+# d_scaled - q_hat design scaled to [0,1]
+# d_new_s - holdout q_hat on [0,1] scale
+# trunc_cols - index list of columns retained in Y_trunc
+# I - number of histograms
+# J - number of bins in Y_trunc
+# alpha - bin edges (vector of size J+1)
+# b - bin sizes (vector of size J)
+
 
 
 #Trace plots for components of a given histogram
