@@ -1,7 +1,7 @@
 #Trying to do some calibration based on posterior GP estiamted values
 #assume we're on the school computer
 
-source('/home/grad/jrc71/Documents/Research/Computer_Emulation/research_code')
+source('/home/grad/jrc71/Documents/Research/Computer_Emulation/research_code/utilities_multi_hist.R')
 
 #File to show pictures/look at plots easily
 setwd('/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT/run_calibration')
