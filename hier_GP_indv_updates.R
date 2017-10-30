@@ -7,7 +7,6 @@ library(caTools)
 library(Matrix)
 library(fields)
 
-
 sig_to_c <- function(sig,r=0.5){
   return(sig*sqrt(1-r^2)/sqrt(2*r^2))
 }
@@ -22,34 +21,6 @@ needed_sig <- function(prob,r,t_st = 0.5,t_min=0){
   return(-1/(qnorm(prob)*(t_st-t_min)))
 }
 
-
-GP_cov <- function(d,lambda,ell,type = 'matern', nu = 3/2, nugget = 0.){
-  d_mat <- as.matrix(dist(d))
-  if(type=="sqr.exp"){
-    out_mat <- lambda^(-1)*exp(-d_mat^2/ell^2) + nugget*diag(length(d))
-  }else if(type=="matern"){
-    out_mat <- lambda^(-1)*Matern(d_mat,range=ell,smoothness = nu) + nugget*diag(length(d))
-  }else{
-    stop('Wrong covariance function type')
-  } 
-  
-  
-  return(out_mat)
-}
-
-GP_cross_cov <- function(d,d_star,lambda,ell,type = 'matern',nu = 3/2){
-  inds <- 1:length(d)
-  d_mat <- as.matrix(dist(c(d,d_star)))
-  if(type=="sqr.exp"){
-    out_mat <- lambda^(-1)*exp(-d_mat[inds,-inds]^2/ell^2)
-  } else if(type=="matern"){
-    out_mat <- lambda^(-1)*Matern(d_mat[inds,-inds],range = ell, smoothness = nu)
-  }else{ 
-    stop('Wrong covariance function type')
-  }
-  
-  return(out_mat)
-}
 
 #Data stuff
 read_hist_data <- function(hist_loc, q_file){
