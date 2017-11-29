@@ -1,82 +1,58 @@
-#Hierarchical GP
-#Individual updates
-library(truncnorm)
-library(mvtnorm)
-library(dplyr)
-library(caTools)
-library(Matrix)
-library(fields)
+##Simulation Study
+
+#Exploring betas
+x <- rbeta(1E4,3,7)
 
 source('/Users/Jake/Dropbox/Research/Computer_Emulation/R_code/utilities_multi_hist.R')
 
 
-sig_to_c <- function(sig,r=0.5){
-  return(sig*sqrt(1-r^2)/sqrt(2*r^2))
-}
-c_to_sig <- function(c,r=0.5){
-  return(c*sqrt(2*r^2/(1-r^2)))
-}
-prior_prob <- function(sig,t_st = 0.5,t_min = 0){
-  return(pnorm(-(1/(t_st-t_min))/sig))
+
+for(i in 1:12){
+ # x <- rbeta(1E4,i+1,4)
+  #hist(x,main = i)
+  x <- seq(0.01,0.99,by =0.01)
+  plot(x,dbeta(x,6,i+0.5),type = 'l',main = i)
 }
 
-needed_sig <- function(prob,r,t_st = 0.5,t_min=0){
-  return(-1/(qnorm(prob)*(t_st-t_min)))
+#Make the histogram data
+#My own function makes it easier to control bins
+my_hist <- function(dat,bounds){
+  bins <- numeric(length(alpha)-1)
+  for(i in 1:length(bins)){
+    bins[i] <- length(which(dat>bounds[i] & dat <=bounds[i+1]))
+  }
+  return(bins)
 }
 
+n_q = 12
+n_bins <- 10
 
-#Data stuff
-read_hist_data <- function(hist_loc, q_file){
-  q_vals <- read.table(q_file)[,1]
-  
-  Y_mat <- lapply(as.list(q_vals),function(x){
-    read.table(file = paste0(hist_loc,"q_",as.character(x),".dat"))[,2]
-  }) %>%
-    do.call(rbind,.)
-  
-  bin_left = read.table(file = paste0(hist_loc,"q_",as.character(q_vals[1]),".dat"))[,1]
-  
-  colnames(Y_mat) <- as.character(bin_left)
-  
-  return(Y_mat)
-  
+alpha <- seq(0,1,length = n_bins+1)
+
+Y_beta <- matrix(0,n_q,n_bins)
+num_counts = 1E4
+beta_a = 6
+for(i in 1:n_q){
+  x_dat <- rbeta(num_counts,beta_a,i+0.5)
+  Y_beta[i,] <- my_hist(x_dat,bounds=alpha)
+  plot(Y_beta[i,]/num_counts)
 }
-
-jet_path_comp <- "/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT/"
-jet_path_lap <- "/Users/Jake/Dropbox/Research/JETSCAPE/JETSCAPE-STAT/"
-hist_folder <- "q_dat_100k/"
-
-on_comp = TRUE
-#Create new directory based on date/time, change to it
-if(on_comp){
-  model_time = Sys.time()
-  new_dir = paste0(jet_path_comp,'/',model_time)
-  dir.create(new_dir)
-  setwd(new_dir)
-}else{
-  stop('Fix boolean')
-}
+(pretend_q_vals <- 1:n_q + 0.5)#basically just don't want beta(x,1)
 
 
-current_path = jet_path_lap
+(colnames(Y_beta) <- alpha[-length(alpha)])
 
-q_vals_file <- paste0(current_path,"qhat_vals_100k.dat")
+holdout <- 3
 
-
-#Data
-num_counts <- 100000
-holdout <- 7
-Y <- read_hist_data(hist_loc = paste0(current_path,hist_folder),
-                    q_file = q_vals_file) *num_counts
-Y_new <- Y[holdout,]
-Y <- Y[-holdout,]
-d <- read.table(q_vals_file)[-holdout,1]
-d_new <-read.table(q_vals_file)[holdout,1]
+Y_new <- Y_beta[holdout,]
+Y <- Y_beta[-holdout,]
+d <- pretend_q_vals[-holdout]
+d_new <-pretend_q_vals[holdout]
 (d_scaled <- (d-min(d))/(max(d)-min(d)))
 d_new_s <- (d_new-min(d))/(max(d)-min(d))
 t_minus = 0
-t_star <- 0.5
-trunc_cols <- which(as.numeric(colnames(Y))<t_star)
+t_star <- 1
+(trunc_cols <- which(as.numeric(colnames(Y))<t_star))
 Y_trunc <- Y[,trunc_cols]
 Y_new_trunc <- Y_new[trunc_cols]
 
@@ -84,6 +60,7 @@ Y_new_trunc <- Y_new[trunc_cols]
 data <- list()
 data$num_counts <- num_counts
 data$holdout <- holdout
+data$beta_a <- beta_a
 data$Y <- Y
 data$Y_new <- Y_new
 data$Y_trunc <- Y_trunc
@@ -94,11 +71,9 @@ data$d_new_s <- d_new_s
 data$trunc_cols <-trunc_cols
 
 
-
 (I <- dim(Y)[1])
 (J <- dim(Y_trunc)[2])
 
-(alpha <- c(as.numeric(colnames(Y_trunc)),t_star))#Somewhat sketch
 jitter = FALSE
 if(jitter){
   alpha[-c(1,J+1)] <- alpha[-c(1,J+1)] + rnorm(J-1,0,1E-3)
@@ -110,8 +85,7 @@ data$J <- J
 data$alpha <- alpha
 data$b <- b
 
-#Save the list of data objects 
-save_data = FALSE #Change this if you change something
+ave_data = FALSE #Change this if you change something
 if(save_data|jitter){
   save(data, file = "data_list.Rdata")
 }
@@ -247,7 +221,3 @@ hope_i <- hier_gp_mh_i(iters = 5E5,verbose = TRUE, burnin_prop = 0.4,X_kap = X_k
 write(paste((proc.time() - start_t)[3]/60,'minutes'),file = 'model_time.txt')
 
 save(hope_i, file = "sampler_vals.Rdata")
-
-
-
-
