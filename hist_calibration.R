@@ -4,11 +4,12 @@
 source('/home/grad/jrc71/Documents/Research/Computer_Emulation/research_code/utilities_multi_hist.R')
 
 #File to show pictures/look at plots easily
-setwd('/home/grad/jrc71/Documents/Research/Computer_Emulation/JETSCAPE/JETSCAPE-STAT/run_calibration')
-load('data_list.Rdata')
+setwd('/home/grad/jrc71/Documents/Research/Computer_Emulation/simulation_study/')
 
 #Change to what you need
-setwd('N_9_cos_only/')
+setwd('first_beta_try/')
+
+load('data_list.Rdata')
 load('params_list.Rdata')
 #######################
 #Load necessary values
@@ -43,7 +44,9 @@ list2env(data,envir = parent.frame())
 # alpha - bin edges (vector of size J+1)
 # b - bin sizes (vector of size J)
 
-
+test <- d_scaled[1]
+print('test is')
+print(test)
 
 ##Sampler values for validated GP
 load('sampler_vals.Rdata')
@@ -63,6 +66,9 @@ iters <- 1:dim(X_burn)[1]
 X_thin <- X_burn[!iters%%thin,,]
 lam_thin <- lam_burn[!iters%%thin,]
 ell_thin <- ell_burn[!iters%%thin,]
+
+
+run_cond_mats <- create_cond_mats(X_mat_all = X_thin,lam_mat = lam_thin,ell_mat = ell_thin)
 
 
 ##Calibration function
@@ -119,8 +125,8 @@ cal_qhat <- function(kap, niters = 1E3){
   return(list(q_cals = q_cals, acc_ratio = accept/niters))
 }
 
-cal_try <- cal_qhat(kap = 0.5,niters=100)
-save(cal_try,save_file = 'cal_try.Rdata')
+cal_try <- cal_qhat(kap = 0.5,niters=1E4)
+save(cal_try,file = 'cal_try.Rdata')
 stop('We\'re done here')
 
 
