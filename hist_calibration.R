@@ -127,5 +127,6 @@ stop('We\'re done here')
 cal_try$acc_ratio
 
 q_cal <- cal_try$q_cals
-hist(q_cal)
+hist(q_cal, main = expression('Posterior Distribution of '~hat(q)),prob = TRUE,
+     xlab = expression(hat(q)))
 plot(q_cal,type = 'l')
