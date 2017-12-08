@@ -96,7 +96,12 @@ cal_qhat <- function(kap, niters = 1E3){
     
     #predict Y's with qhat
     X_pred_st <- pred_x(run_cond_mats, d_prime = q_st, d_cond = d_scaled)
-    p_st <- apply(est_probs_i(X_pred_st),1,mean)
+    #X_st <- t(matrix(X_pred_st[sample(1:dim(X_pred_st)[1],size = 1),]))
+    (p_st <- apply(est_probs_i(X_pred_st),1,mean))
+    
+    if(sum(p_st)<0){
+      p_st[which(p_st<0)]=0
+    }
     
     #Also get the same for the current q_hat
     #Only have this if we do rnorm in pred_x, rather than just take the mean
@@ -125,7 +130,7 @@ cal_qhat <- function(kap, niters = 1E3){
   return(list(q_cals = q_cals, acc_ratio = accept/niters))
 }
 
-cal_try <- cal_qhat(kap = 0.5,niters=1E4)
+cal_try <- cal_qhat(kap = 0.5,niters=1E3)
 save(cal_try,file = 'cal_try.Rdata')
 stop('We\'re done here')
 
