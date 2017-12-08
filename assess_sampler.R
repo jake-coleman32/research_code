@@ -120,7 +120,10 @@ add_hist <- function(Y = Y_new_trunc,add = TRUE){
 }
 
 #Plot the predicted density, given the T x N matrix of components
-plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,legend_side = 'topright',...){
+plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,
+                        legend_side = 'topright',...,
+                        beta_alp = NA,
+                        beta_bet = NA){
   f_est <- est_dens_i(x_mat,basis = basis)
   mean_est <- apply(f_est,2,mean)
   
@@ -136,14 +139,28 @@ plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,legend_side = 'to
   
   add_hist()
   
-  colvec <- c(rgb(t(col2rgb('black'))),
-              rgb(t(col2rgb('blue')),max = 255),
-              rgb(t(col2rgb('red')),max = 255,alpha = 50))
-  legend('topright',c('Post Mean', '95% Interval', 'Truth'),
-         lty = c(1,2,0), lwd = c(1,1,0),bty = "n",
-         col = colvec,
-         pch = c(NA,NA, 15),
-         pt.cex = 2)
+  if(!is.na(beta_alp)){
+    lines(seq(0.01,0.99,by=0.01),dbeta(seq(0.01,0.99,by=0.01),beta_alp,beta_bet),
+          col = 'green',lwd = 2)
+    colvec <- c(rgb(t(col2rgb('black'))),
+                rgb(t(col2rgb('blue')),max = 255),
+                rgb(t(col2rgb('red')),max = 255,alpha = 50),
+                rgb(t(col2rgb('green')),max=255))
+    legend(legend_side,c('Post Mean', '95% Interval', 'Unseen Hist','True Density'),
+           lty = c(1,2,0,1), lwd = c(1,1,0,2),bty = "n",
+           col = colvec,
+           pch = c(NA,NA, 15,NA),
+           pt.cex = 2)
+  }else{
+    colvec <- c(rgb(t(col2rgb('black'))),
+                rgb(t(col2rgb('blue')),max = 255),
+                rgb(t(col2rgb('red')),max = 255,alpha = 50))
+    legend(legend_side,c('Post Mean', '95% Interval', 'Unseen Hist'),
+           lty = c(1,2,0), lwd = c(1,1,0),bty = "n",
+           col = colvec,
+           pch = c(NA,NA, 15),
+           pt.cex = 2)
+  }
   if(save_pics) dev.off()
 }
 #plot_dens_i(X_pred,basis = basis_type, save_pics = FALSE) #Density
@@ -159,7 +176,8 @@ plot_dens_i <- function(x_mat,basis = 'sin', save_pics = FALSE,legend_side = 'to
 ##
 
 #Counts with cred intervals compared to truth
-bin_prob_comp <- function(X_pred,save_pics = FALSE){
+bin_prob_comp <- function(X_pred,save_pics = FALSE,
+                          legend_spot = 'bottom_right'){
   if(save_pics) pdf(paste0(path,'pred_comp',suffix,'.pdf'))
   plot(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
        cex = 0.9, ylim = c(min(apply(est_probs_i(X_pred),1,quantile,probs = 0.025)),
@@ -170,7 +188,7 @@ bin_prob_comp <- function(X_pred,save_pics = FALSE){
          as.numeric(colnames(Y_trunc)), apply(est_probs_i(X_pred),1,quantile,probs = 0.975), length=0.05, angle=90, code=3)
   points(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,
          col = rgb(0,0,1,0.3),cex = 0.8,pch = 19)
-  legend('bottomright',c('Predicted','Truth'),col = c(rgb(1,0,0,0.3),rgb(0,0,1,0.3)),pch = 19,
+  legend(legend_spot,c('Predicted','Truth'),col = c(rgb(1,0,0,0.3),rgb(0,0,1,0.3)),pch = 19,
          pt.cex = c(0.9,0.8))
   if(save_pics) dev.off()
 }
@@ -201,7 +219,8 @@ resid_prob_comp <- function(X_pred,save_pics = FALSE){
 
 #Plotting the data points, connecting bins of same histogram
 #Marking the holdout sample
-plot_true_bins <- function(save_pics = FALSE){
+plot_true_bins <- function(save_pics = FALSE,
+                           legend_spot = 'bottom_right'){
   cols = heat.colors(I)
   if(save_pics) pdf(file = paste0(path,'all_data',suffix,'.pdf'))
   plot(as.numeric(colnames(Y_trunc)),
@@ -215,14 +234,15 @@ plot_true_bins <- function(save_pics = FALSE){
   }
   
   lines(as.numeric(colnames(Y_trunc)),Y_new_trunc/num_counts,lwd = 2)
-  legend('bottomright','Out of Sample Histgram',lwd = 2)
+  legend(legend_spot,'Out of Sample Histgram',lwd = 2)
   if(save_pics) dev.off()
 }
 
 #Plotting predicted bins, connecting for same hist
 #Marking out-of-sample
-plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE){
-  cols = rainbow(I)
+plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE,
+                           legend_spot = 'bottomright'){
+  cols = heat.colors(I)
   
   #Now lets plot our estiamtes
   #Doesn't vary more than the 95% confidence intervals
@@ -239,7 +259,7 @@ plot_pred_bins <- function(X_mats_all, X_pred,save_pics = FALSE){
   
   lines(as.numeric(colnames(Y_trunc)),apply(est_probs_i(X_pred),1,mean),
         lwd = 2)
-  legend('bottomright','Out of Sample Prediction',lwd = 2)
+  legend(legend_spot,'Out of Sample Prediction',lwd = 2)
   if(save_pics) dev.off() 
 }
 
@@ -303,19 +323,24 @@ plot_thetas(save_pics = save_pics)
 
 #Get predictive Xs
 run_cond_mats <- create_cond_mats(X_mat_all = X_thin,lam_mat = lam_thin,ell_mat = ell_thin)
-system.time(X_pred <- pred_x(run_cond_mats, d_prime = d_new_s, d_cond = d_scaled))
+system.time(X_pred <- pred_x(run_cond_mats, d_prime = d_new_s, d_cond = d_scaled,
+                             mean_only = FALSE))
 
 #Make some predictive plots
 gam=1
 T_out=seq(0,t_star,length=101)
 
 basis_type = 'cos'
-plot_dens_i(X_pred,basis=basis_type, save_pics = save_pics) #Density
-bin_prob_comp(X_pred = X_pred,save_pics = save_pics) #Bin probs
+plot_dens_i(X_pred,basis=basis_type, save_pics = save_pics,
+            legend_side = 'topleft',beta_alp = 6,beta_bet=3.5) #Density
+bin_prob_comp(X_pred = X_pred,save_pics = save_pics,
+              legend_spot = 'topleft') #Bin probs
 resid_prob_comp(X_pred = X_pred,save_pics = save_pics) #Residuals
 
-plot_true_bins(save_pics = save_pics)#True bins
-plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = save_pics) #predicted bins
+plot_true_bins(save_pics = save_pics,
+               legend_spot = 'topleft')#True bins
+plot_pred_bins(X_mats_all = X_thin,X_pred = X_pred,save_pics = save_pics,
+               legend_spot = 'topleft') #predicted bins
 
 
 ##############################
