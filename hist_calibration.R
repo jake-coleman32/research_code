@@ -96,7 +96,7 @@ cal_qhat <- function(kap, niters = 1E3){
     
     #predict Y's with qhat
     X_pred_st <- pred_x(run_cond_mats, d_prime = q_st, d_cond = d_scaled)
-    p_st <- apply(est_probs_i(X_pred_cur),1,mean)
+    p_st <- apply(est_probs_i(X_pred_st),1,mean)
     
     #Also get the same for the current q_hat
     #Only have this if we do rnorm in pred_x, rather than just take the mean
