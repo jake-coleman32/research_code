@@ -6,10 +6,14 @@ library(reshape2)
 library(RobustGaSP)
 library(mvtnorm)
 library(Matrix)
+library(stringr)
 
-setwd("/Users/Jake/Dropbox/Research/JETSCAPE/second_project/")
-folder = "forSTAT 2/"
-save_path <- "/Users/Jake/Dropbox/Research/JETSCAPE/second_project/forSTAT_old_long_run/"
+###NOTE
+#CURRENTLY USING WHITENED PCA, 
+
+setwd("/Users/Jake/Dropbox/Research/JETSCAPE/second_project_take_3/")
+folder = "forSTAT_10_22/"
+save_path <- "/Users/Jake/Dropbox/Research/JETSCAPE/second_project_take_3/output_10_22/"
 save_pics = FALSE
 
 
@@ -19,18 +23,34 @@ all_dsets <- c(
   ,"PbPb2760-cen-00-05"
   ,"PbPb2760-cen-30-40"
   ,"PbPb5020-cen-00-10"
-  ,"PbPb5020-cen-30-50"
+  #,"PbPb5020-cen-30-50"
 )
 
-systems_to_calibrate = c("AuAu200"
-                        ,  "PbPb2760"
-                         , "PbPb5020"
+systems_to_calibrate = c(#"AuAu200"
+                        #  "PbPb2760"
+                         "PbPb5020"
                          )
 if(length(systems_to_calibrate)==3){
-  hist_main = "All Datasets Simultaneous Calibration"
+  (hist_main = "All Datasets Simultaneous Calibration")
 }else{
-  hist_main = paste(paste0(systems_to_calibrate,collapse = " & "),"Calibration")
+  (hist_main = paste(paste0(systems_to_calibrate,collapse = " & "),"Calibration"))
 }
+
+(design <- read.table("latin_hc_design.txt",header = TRUE))
+load('ranges.Rdata')
+scaled_d <- matrix(0,dim(design)[1],dim(design)[2]) %>%
+  as.data.frame()
+for(j in 1:dim(design)[2]){
+  scaled_d[,j] <- (design[,j] - ranges[[j]][1])/(ranges[[j]][2] - ranges[[j]][1])
+}
+
+# scaled_d <- lapply(design,function(x){
+#   (x-min(x))/(max(x) - min(x))
+# }) %>% 
+#   do.call(cbind,.) %>%
+#   as.data.frame()
+
+n_design <- dim(design)[1]
 
 
 #Covariance Function - Currently Squared Exponential
@@ -50,18 +70,21 @@ covs <- au <- vector('list',length(dsets_to_use))
 first_concat = TRUE
 for(i in 1:length(dsets_to_use)){
   dset = dsets_to_use[i]
-  current_dset = all_dsets[dset]
+  (current_dset = all_dsets[dset])
   (current_experiment = strsplit(current_dset,'-')[[1]][1])
   
   au[[i]] <- read.table(paste0(folder,current_dset,".dat"))
-  names(au[[i]]) <- c("pT","RAA_exp","Stat_err","Sys_err",paste0("RAA_",as.character(1:24)))
+  (names(au[[i]]) <- c("pT","RAA_exp","Stat_err","Sys_err",paste0("RAA_",as.character(1:n_design))))
+  
+  #Write csv of experimental data for easily manipulation later
+  write.csv(au[[i]][,1:4],file=paste0(folder,current_dset,"_exp.csv"),row.names = FALSE)
   
   #Separate output, change from wide to long
   mod_dat <- dplyr::select(au[[i]], -c(RAA_exp,Stat_err,Sys_err)) %>%
     melt(id = "pT") %>%
     arrange(by = pT)
   
-  exp_dat <- au[[i]]$RAA_exp
+  (exp_dat <- au[[i]]$RAA_exp)
   stat_cov <- diag(au[[i]]$Stat_err^2)
   
   #Not sure this is right - scale or don't scale pT?
@@ -79,6 +102,9 @@ for(i in 1:length(dsets_to_use)){
   
   cur_concat <- dcast(mod_dat,variable~pT)
   colnames(cur_concat) = c('design',paste0(current_experiment,'_',colnames(cur_concat)[-1]))
+  
+  #Write csv of each dataset for easily manipulation later
+  write.csv(cur_concat[,-1],file=paste0(folder,current_dset,".csv"),row.names = FALSE)
   
   if(first_concat){
     first_concat = FALSE
@@ -101,7 +127,7 @@ block_covs <- as.matrix(bdiag(covs))
 Y <- all_mod_dat[,-1]
 Y_final <- sweep(Y,2,apply(Y,2,mean)) %>%
   sweep(2,apply(Y,2,sd),FUN = '/') 
-Y_svd <- svd(Y)
+Y_svd <- svd(Y_final)
 
 #Test for Normality
 #Not egregiously off
@@ -112,12 +138,12 @@ Y_svd <- svd(Y)
 
 #None are <0.05 even without accounting for multiple testing
 for(j in 1:dim(Y_final)[2]){
-  print(shapiro.test(Y_final[,j])$p.value)
+  print(shapiro.test(Y_final[-15,j])$p.value)
 }
 
 #How many PCs?
 eigs <- Y_svd$d^2
-V_q <- cumsum(eigs)/sum(eigs)
+(V_q <- cumsum(eigs)/sum(eigs))
 
 if(save_pics) pdf(paste0(save_path,'au_var_explained.pdf'))
 plot(V_q[1:6],type = 'o',
@@ -135,23 +161,17 @@ q <- 3
 V = Y_svd$v[,1:q]
 S = diag(Y_svd$d[1:q])
 
-
-Z <- as.matrix(Y_final)%*%V %>%
+m = dim(Y_final)[1]
+Z <- sqrt(m-1)*as.matrix(Y_final)%*%V%*%solve(S) %>%
   as.data.frame()
 
-(design <- read.table("latin_hc_design.txt",header = TRUE))
-scaled_d <- lapply(design,function(x){
-  (x-min(x))/(max(x) - min(x))
-}) %>% 
-  do.call(cbind,.) %>%
-  as.data.frame()
 
-final_mod <- lapply(Z,rgasp,design = scaled_d)
+final_mod <- lapply(Z,rgasp,design = scaled_d, nugget = 1E-5)
 
 #############
 ##Prediction
 ############
-holdout = 15
+holdout = 17
 train_d = scaled_d[-holdout,]
 test_d = scaled_d[holdout,]
 
@@ -161,7 +181,7 @@ test_Y = Y[holdout,]
 train_Z = as.matrix(train_Y)%*%V
 test_Z = as.matrix(test_Y)%*%V
 
-train_mod <- lapply(as.data.frame(train_Z),rgasp,design = train_d)
+train_mod <- lapply(as.data.frame(train_Z),rgasp,design = train_d,nugget = 1E-5)
 test_mod <- lapply(train_mod,RobustGaSP::predict,testing_input = test_d)
 
 pred_Z <- lapply(test_mod,function(x)x$mean) %>%
@@ -190,7 +210,8 @@ plot(as.numeric(test_Y),as.numeric(pred_Y),pch = 19,cex = .5,
      main = 'Emulator Prediction',
      cex.lab = 2,
      cex.axis = 1.3,
-     cex.main = 1.4)
+     cex.main = 1.4,
+     mgp = c(2.1,1,0))
 arrows(as.numeric(test_Y), as.numeric(pred_Y) - 2*sqrt(pred_err_Y),
        as.numeric(test_Y),as.numeric(pred_Y) + 2*sqrt(pred_err_Y),
        length=0, angle=90, code=3)
@@ -201,12 +222,13 @@ abline(a = 0,b = 1)
 #Rotate the experimental data with same PCA values
 Y_exp_final <- (all_exp_dat -apply(Y,2,mean))/apply(Y,2,sd)
 
-(Z_exp <- Y_exp_final%*%V)
+(Z_exp <- sqrt(m-1)*t(as.matrix(Y_exp_final))%*%V%*%solve(S))
 
-(Z_cov <- t(V)%*%diag(1/apply(Y,2,sd))%*%block_covs %*%diag(1/apply(Y,2,sd)) %*%V)
+(Z_cov <- m*solve(S)%*%t(V)%*%diag(1/apply(Y,2,sd))%*%block_covs %*%diag(1/apply(Y,2,sd)) %*%V%*%solve(S))
 
 mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
-                   t_kap = c(0.1,0.1)
+                   t_kap = 0.1,
+                   proposal_cor_mat =diag(dim(design)[2])
                    ){
   
   #Do various sampler setups
@@ -214,11 +236,11 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
   
   burnin <- burnin_prop*niters
   
-  t_out <- matrix(0,niters,2)
+  t_out <- matrix(0,niters,dim(design)[2])
   t_ratio <- ob_ratio <- 0
   
   #draw from priors
-  t_cur <- runif(2)
+  t_cur <- runif(dim(design)[2])
 
   #Get current values
   (X_cur <- (t(as.matrix(t_cur))))
@@ -234,7 +256,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     }
     
     #Propose new t_st
-    t_st <- mvtnorm::rmvnorm(1,mean=t_cur,sigma = t_kap*matrix(c(1,-.8,-.8,1),ncol = 2))
+    t_st <- mvtnorm::rmvnorm(1,mean=t_cur,sigma = t_kap*proposal_cor_mat)
     
     #Check to make sure parameter is within [0,1]
     auto_reject = FALSE
@@ -245,7 +267,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     
     #(X_st_sqrt <- t(as.matrix(t_st)))
     X_st_sqrt <- t_st
-    X_st <- X_st_sqrt^2
+    X_st <- X_st_sqrt#^2
     #Get the predictive mean/sd for t_st
     st_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_st)
     
@@ -255,8 +277,8 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     z_cur_means <- do.call(c,lapply(cur_mod,function(x){x$mean}))
     z_cur_sd <- do.call(c,lapply(cur_mod,function(x){x$sd}))
     
-    (zmod_st <- rnorm(length(z_st_means),z_st_means,z_st_sd))
-    zmod_cur <- rnorm(length(z_cur_means),z_cur_means,z_cur_sd)
+    #(zmod_st <- rnorm(length(z_st_means),z_st_means,z_st_sd))
+    #zmod_cur <- rnorm(length(z_cur_means),z_cur_means,z_cur_sd)
     
     #Draw y^M for current and st predictive distributions
     #(ymod_st <- rnorm(length(st_mod$mean),st_mod$mean,st_mod$sd))
@@ -265,16 +287,16 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     #Get likelihoods
  
       like_cur <- mvtnorm::dmvnorm(x = Z_exp,
-                          mean = zmod_cur,
-                          sigma = Z_cov,
+                          mean = z_cur_means,
+                          sigma = Z_cov + diag(z_cur_sd^2),
                           log = TRUE)
       like_st <- mvtnorm::dmvnorm(x = Z_exp,
-                         mean = zmod_st,
-                         sigma = Z_cov,
+                         mean = z_st_means,
+                         sigma = Z_cov + diag(z_st_sd^2),
                          log = TRUE)
 
     #Includes constant prior 
-    ratio <- sum(like_st) - sum(like_cur) + sum(log(2*X_st)) - sum(log(2*X_cur))
+    ratio <- sum(like_st) - sum(like_cur) #+ sum(log(2*X_st)) - sum(log(2*X_cur))
     
     #Put exponential prior on first input parameter?
     # if(j==1) ratio <- ratio + dexp(tj_st,log = TRUE) - dexp(t_cur[j],log = TRUE)
@@ -303,25 +325,28 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
 }
 
 
-res <- mh_cal(niters = 1E5,t_kap = 1E-1)
+res <- mh_cal(niters = 1E4,t_kap = 5E-3)#,
+              #proposal_cor_mat = matrix(c(1,-.8,-.8,1),ncol = 2))
 #save(res,file = paste0(save_path,'res_old.Rdata'))
 
 param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
 #param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
-for(j in 1:2){
-  param_plot[,j] <- res$params[,j]^2*(max((design[,j])) - min((design[j]))) + min((design[j]))
+for(j in 1:dim(param_plot)[2]){
+  param_plot[,j] <- res$params[,j]*(ranges[[j]][2] - ranges[[j]][1]) + ranges[[j]][1]
 }
-param_plot_sqrt <- sqrt(param_plot)
+#param_plot_sqrt <- sqrt(param_plot)
 
-plot(param_plot[,1],type = 'l', ylab = expression(Lambda^jet), xlab = 'Iteration',
-     main = expression(Lambda^jet~'Trace Plot'))
-plot(param_plot[,2],type = 'l', ylab = expression(~alpha[s]^med), xlab = 'Iteration',
-     main = expression(~alpha[s]^med~'Trace Plot'))
-
-plot(res$params[,1],type = 'l', ylab = expression(sqrt(Lambda^jet)), xlab = 'Iteration',
-     main = expression(sqrt(Lambda^jet)~'Trace Plot'))
-plot(res$params[,2],type = 'l', ylab = expression(sqrt(alpha[s]^med)), xlab = 'Iteration',
-     main = expression(sqrt(alpha[s]^med)~'Trace Plot'))
+plot(param_plot[,1],type = 'l', ylab = expression(alpha), xlab = 'Iteration',
+     main = expression(alpha~'Trace Plot'))
+plot(param_plot[,2],type = 'l', ylab = expression(beta), xlab = 'Iteration',
+     main = expression(~beta~'Trace Plot'))
+# plot(param_plot[,3],type = 'l',ylab = 'Gamma')
+# plot(param_plot[,4],type = 'l',ylab = 'Delta')
+# 
+# plot(res$params[,1],type = 'l', ylab = expression(sqrt(Lambda^jet)), xlab = 'Iteration',
+#      main = expression(sqrt(Lambda^jet)~'Trace Plot'))
+# plot(res$params[,2],type = 'l', ylab = expression(sqrt(alpha[s]^med)), xlab = 'Iteration',
+#      main = expression(sqrt(alpha[s]^med)~'Trace Plot'))
 
 #write.table(param_plot,file = paste0(save_path,'post_draws.txt'),
  #           row.names = FALSE)
@@ -341,22 +366,24 @@ panel.hist <- function(x, ...)
 }
 
 panel.image <- function(x,y,...){
-  #f1 <- kde2d(x, y, n = 100)
-  #image(f1,add = TRUE)
-  points(x,y, col = rgb(1,0,0,.1))
+  f1 <- kde2d(x, y, n = 100)
+  image(f1,add = TRUE)
+  #points(x,y, col = rgb(1,0,0,.1))
 }
 
 if(save_pics){ pdf(paste0(save_path,
                          paste0(systems_to_calibrate,collapse = "_"),
                          ".pdf"))}
-pairs(res$params, 
+pairs(param_plot, 
       panel = panel.image,
       diag.panel = panel.hist,
       #pch = 19,
       #cex = .3,
       col = rgb(1,0,0,.1),
-      labels = c(expression(sqrt(Lambda^jet)),
-                 expression(sqrt(alpha[s]^med))),
+      labels = c(expression(alpha),
+                 expression(beta),
+                 expression(gamma),
+                 expression(delta)),
       upper.panel = NULL,
       cex.lab = 1.5,
       cex.axis = 1.3,
@@ -431,11 +458,11 @@ plot_lines <- function(dat,pT_col = 'pT',exp_col = 'RAA_exp',
   points(dat[,pT_col],dat[,exp_col],
        pch = 19)
   #ylim = c(0,1))
-  arrows(dat[,pT_col]-arrow_offset, dat[,exp_col] - 2*dat[,err_col_stat],
-         dat[,pT_col]-arrow_offset, dat[,exp_col] + 2*dat[,err_col_stat],
+  arrows(dat[,pT_col]-arrow_offset, dat[,exp_col] - 1.96*dat[,err_col_stat],
+         dat[,pT_col]-arrow_offset, dat[,exp_col] + 1.96*dat[,err_col_stat],
          length=0.05, angle=90, code=3,col = 'blue')
-  arrows(dat[,pT_col]+arrow_offset, dat[,exp_col] - 2*dat[,err_col_sys],
-         dat[,pT_col]+arrow_offset, dat[,exp_col] + 2*dat[,err_col_sys],
+  arrows(dat[,pT_col]+arrow_offset, dat[,exp_col] - 1.96*dat[,err_col_sys],
+         dat[,pT_col]+arrow_offset, dat[,exp_col] + 1.96*dat[,err_col_sys],
          length=0.05, angle=90, code=3, col = 'black')
   legend('topleft',c('Systematic Errors',
                      'Statistical Errors'),
@@ -449,7 +476,7 @@ plot_lines <- function(dat,pT_col = 'pT',exp_col = 'RAA_exp',
 
 plot_all_dsets <- function(all_dset_mat,
                            orig_dset_list = au,
-                           dset_strings = all_dsets,
+                           dset_strings = all_dsets[dsets_to_use],
                            title_end = "",
                            alpha_val = 0.01,
                            save_pics = FALSE){
@@ -512,10 +539,12 @@ plot_draws <- function(draws,
 
 plot_draws(res$params,title_end = "Posterior",
            alpha_val = 0.03,
-           save_pics = TRUE)
-plot_draws(matrix(runif(2E3),ncol = 2),title_end = "Prior",
+           rot_mat = 1/sqrt(m-1)*V%*%(S),
+           save_pics = FALSE)
+plot_draws(matrix(runif(5E3),ncol = dim(design)[2]),title_end = "Prior",
            alpha_val = 0.03,
-           save_pics = TRUE)
+           rot_mat = 1/sqrt(m-1)*V%*%(S),
+           save_pics = FALSE)
 
 
 
