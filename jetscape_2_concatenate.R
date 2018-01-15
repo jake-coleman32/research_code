@@ -11,8 +11,8 @@ library(stringr)
 ###NOTE
 #CURRENTLY USING WHITENED PCA, 
 
-setwd("/Users/Jake/Dropbox/Research/JETSCAPE/second_project_take_3/")
-folder = "forSTAT_10_22/"
+setwd("/Users/Jake/Dropbox/Research/JETSCAPE/winter_school/hic_testing/shanshan_data//")
+folder = "forSTAT/"
 save_path <- "/Users/Jake/Dropbox/Research/JETSCAPE/second_project_take_3/output_10_22/"
 save_pics = FALSE
 
@@ -22,14 +22,14 @@ all_dsets <- c(
   ,"AuAu200-cen-40-50"
   ,"PbPb2760-cen-00-05"
   ,"PbPb2760-cen-30-40"
-  ,"PbPb5020-cen-00-10"
-  #,"PbPb5020-cen-30-50"
+  #,"PbPb5020-cen-00-10"
+  ,"PbPb5020-cen-30-50"
 )
 
 systems_to_calibrate = c(#"AuAu200"
-                        #  "PbPb2760"
-                         "PbPb5020"
-                         )
+  #  "PbPb2760"
+  "PbPb5020"
+)
 if(length(systems_to_calibrate)==3){
   (hist_main = "All Datasets Simultaneous Calibration")
 }else{
@@ -43,6 +43,7 @@ scaled_d <- matrix(0,dim(design)[1],dim(design)[2]) %>%
 for(j in 1:dim(design)[2]){
   scaled_d[,j] <- (design[,j] - ranges[[j]][1])/(ranges[[j]][2] - ranges[[j]][1])
 }
+colnames(scaled_d) <- c('Lambda','alpha_s')
 
 # scaled_d <- lapply(design,function(x){
 #   (x-min(x))/(max(x) - min(x))
@@ -64,7 +65,7 @@ cov_mat <- function(x,ell,lambda,alpha = 2, nugget=0.){
 }
 (dsets_to_use = which(str_detect(all_dsets, 
                                  paste(systems_to_calibrate,collapse = "|"))
-                      ))
+))
 covs <- au <- vector('list',length(dsets_to_use))
 
 first_concat = TRUE
@@ -125,17 +126,13 @@ block_covs <- as.matrix(bdiag(covs))
 
 #Rotate with PCA
 Y <- all_mod_dat[,-1]
-Y_final <- sweep(Y,2,apply(Y,2,mean)) %>%
-  sweep(2,apply(Y,2,sd),FUN = '/') 
+sd_vec = apply(Y,2,sd)
+#sd_vec = rep(1,dim(Y)[2])
+y_means = apply(Y,2,mean)
+Y_final <- as.matrix(sweep(Y,2,y_means)) %*% diag(1/sd_vec)
 Y_svd <- svd(Y_final)
 
 #Test for Normality
-#Not egregiously off
-# for(j in 1:dim(Y_final)[2]){
-#   qqnorm(Y_final[,j],main = j)
-#   qqline(Y_final[,j])
-# }
-
 #None are <0.05 even without accounting for multiple testing
 for(j in 1:dim(Y_final)[2]){
   print(shapiro.test(Y_final[-15,j])$p.value)
@@ -156,80 +153,54 @@ plot(V_q[1:6],type = 'o',
      pch = 19)
 if(save_pics) dev.off()
 
-q <- 3
-
+q <- 2
 V = Y_svd$v[,1:q]
 S = diag(Y_svd$d[1:q])
 
 m = dim(Y_final)[1]
-Z <- sqrt(m-1)*as.matrix(Y_final)%*%V%*%solve(S) %>%
+Z <-as.matrix(Y_final)%*%V %>%
   as.data.frame()
 
+##Extra variation
+V_b = Y_svd$v[,(q+1):dim(Y_final)[2]]
+S_b = diag(Y_svd$d[(q+1):dim(Y_final)[2]])
 
-final_mod <- lapply(Z,rgasp,design = scaled_d, nugget = 1E-5)
+
 
 #############
 ##Prediction
 ############
-holdout = 17
-train_d = scaled_d[-holdout,]
-test_d = scaled_d[holdout,]
 
-train_Y = Y_final[-holdout,]
-test_Y = Y[holdout,]
+final_mod <- lapply(Z,rgasp,design = scaled_d, nugget.est=TRUE)#, nugget = 1E-5)
+#final_mod <- lapply(Z,km,design=scaled_d,formula=~1,nugget.estim=TRUE)
 
-train_Z = as.matrix(train_Y)%*%V
-test_Z = as.matrix(test_Y)%*%V
+#(sigma2hats <- lapply(final_mod,function(x)x@sigma2_hat) %>% unlist())
 
-train_mod <- lapply(as.data.frame(train_Z),rgasp,design = train_d,nugget = 1E-5)
-test_mod <- lapply(train_mod,RobustGaSP::predict,testing_input = test_d)
 
-pred_Z <- lapply(test_mod,function(x)x$mean) %>%
-  do.call(cbind,.) 
-pred_err_Z <- lapply(test_mod,function(x)x$sd) %>%
-  do.call(cbind,.) %>%
-  as.numeric()%>%
-  diag() 
 
-pred_Y <- pred_Z %*%t(V) %>%
-  sweep(2,apply(Y,2,sd),FUN = '*') %>%
-  sweep(2,apply(Y,2,mean),FUN = '+')
-
-#This gives negative values
-pred_err_Y <- V%*%pred_err_Z %*%t(V) %>%
-  sweep(2,apply(Y,2,sd)^2,FUN = '*') %>%
-  diag()
-
-#This is what I argue for in Meeting 6/29 IT'S THE SAME!!!!!
-# pred_err_Y2 = diag(pred_err_Z)%*%t(V^2) %>%
-#   sweep(2,apply(Y,2,sd)^2,FUN = '*')
-
-plot(as.numeric(test_Y),as.numeric(pred_Y),pch = 19,cex = .5,
-     xlab = 'Holdout Values',
-     ylab = 'Predicted Values',
-     main = 'Emulator Prediction',
-     cex.lab = 2,
-     cex.axis = 1.3,
-     cex.main = 1.4,
-     mgp = c(2.1,1,0))
-arrows(as.numeric(test_Y), as.numeric(pred_Y) - 2*sqrt(pred_err_Y),
-       as.numeric(test_Y),as.numeric(pred_Y) + 2*sqrt(pred_err_Y),
-       length=0, angle=90, code=3)
-
-abline(a = 0,b = 1)
 
 #Calibration
+
+
 #Rotate the experimental data with same PCA values
-Y_exp_final <- (all_exp_dat -apply(Y,2,mean))/apply(Y,2,sd)
+Y_exp_final <- t(all_exp_dat - y_means)%*%diag(1/sd_vec)
+Y_cov_final <- diag(1/sd_vec)%*%block_covs %*%diag(1/sd_vec)
 
-(Z_exp <- sqrt(m-1)*t(as.matrix(Y_exp_final))%*%V%*%solve(S))
+(Z_exp <- Y_exp_final%*%V)
 
-(Z_cov <- m*solve(S)%*%t(V)%*%diag(1/apply(Y,2,sd))%*%block_covs %*%diag(1/apply(Y,2,sd)) %*%V%*%solve(S))
+(Z_cov <-t(V)%*%Y_cov_final%*%V)
+
+#Extra variation
+cov_extra_phys_cal = 1/(m)*diag(sd_vec)%*%V_b%*%S_b^2%*%t(V_b)%*%diag(sd_vec)
+
+#cov_extra_pca_cal = t(V_b)%*%Y_cov_final%*%V_b
+
 
 mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
                    t_kap = 0.1,
-                   proposal_cor_mat =diag(dim(design)[2])
-                   ){
+                   proposal_cor_mat =diag(dim(design)[2]),
+                   in_pca_space = TRUE
+){
   
   #Do various sampler setups
   time_start <- proc.time()
@@ -241,10 +212,12 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
   
   #draw from priors
   t_cur <- runif(dim(design)[2])
-
+  
   #Get current values
-  (X_cur <- (t(as.matrix(t_cur))))
+  (X_cur <- t(as.matrix(t_cur)))
+  colnames(X_cur) <- colnames(scaled_d)
   cur_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_cur)
+  #cur_mod <- lapply(final_mod,DiceKriging::predict, newdata=data.frame(X_cur),type ='UK')
   
   #(descrep_cov_cur <- cov_mat(pT_scaled,ell_cur,lam_cur))
   
@@ -256,7 +229,7 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     }
     
     #Propose new t_st
-    t_st <- mvtnorm::rmvnorm(1,mean=t_cur,sigma = t_kap*proposal_cor_mat)
+    (t_st <- mvtnorm::rmvnorm(1,mean=t_cur,sigma = t_kap*proposal_cor_mat))
     
     #Check to make sure parameter is within [0,1]
     auto_reject = FALSE
@@ -267,15 +240,28 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     
     #(X_st_sqrt <- t(as.matrix(t_st)))
     X_st_sqrt <- t_st
-    X_st <- X_st_sqrt#^2
+    (X_st <- X_st_sqrt)#^2
+    colnames(X_st) <- colnames(scaled_d)
     #Get the predictive mean/sd for t_st
     st_mod <- lapply(final_mod, RobustGaSP::predict, testing_input = X_st)
+    #st_mod <- lapply(final_mod,DiceKriging::predict, newdata=data.frame(X_st),type ='UK')
+
+    round(z_st_means <- do.call(c,lapply(st_mod,function(x){x$mean})),3)
+    round(z_st_sd <- do.call(c,lapply(st_mod,function(x){x$sd})),3)
     
-    (z_st_means <- do.call(c,lapply(st_mod,function(x){x$mean})))
-    z_st_sd <- do.call(c,lapply(st_mod,function(x){x$sd}))
+    round(z_st_var <- z_st_sd^2,3)#*sigma2hats, 3)
     
-    z_cur_means <- do.call(c,lapply(cur_mod,function(x){x$mean}))
-    z_cur_sd <- do.call(c,lapply(cur_mod,function(x){x$sd}))
+    round(z_cur_means <- do.call(c,lapply(cur_mod,function(x){x$mean})), 3)
+    round(z_cur_sd <- do.call(c,lapply(cur_mod,function(x){x$sd})), 3)
+    
+    round(z_cur_var <- z_cur_sd^2,3)#*sigma2hats, 3)
+    
+    (y_st_means <- t(z_st_means)%*%t(V)%*%diag(sd_vec) + y_means)
+    (y_st_cov <- diag(sd_vec)%*%V%*%diag(z_st_var)%*%t(V)%*%diag(sd_vec))
+    
+    (y_cur_means <- t(z_cur_means)%*%t(V)%*%diag(sd_vec) + y_means)
+    (y_cur_cov <- diag(sd_vec)%*%V%*%diag(z_cur_var)%*%t(V)%*%diag(sd_vec))
+    
     
     #(zmod_st <- rnorm(length(z_st_means),z_st_means,z_st_sd))
     #zmod_cur <- rnorm(length(z_cur_means),z_cur_means,z_cur_sd)
@@ -285,23 +271,33 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
     #(ymod_cur <- rnorm(length(cur_mod$mean),cur_mod$mean,cur_mod$sd))
     
     #Get likelihoods
- 
-      like_cur <- mvtnorm::dmvnorm(x = Z_exp,
-                          mean = z_cur_means,
-                          sigma = Z_cov + diag(z_cur_sd^2),
-                          log = TRUE)
-      like_st <- mvtnorm::dmvnorm(x = Z_exp,
-                         mean = z_st_means,
-                         sigma = Z_cov + diag(z_st_sd^2),
-                         log = TRUE)
-
+    
+    if(in_pca_space){
+      (like_cur <- mvtnorm::dmvnorm(x = as.numeric(Z_exp),
+                                    mean = as.numeric(z_cur_means),
+                                    sigma = Z_cov + diag(z_cur_var),
+                                    log = TRUE))
+      (like_st <- mvtnorm::dmvnorm(x = as.numeric(Z_exp),
+                                   mean = as.numeric(z_st_means),
+                                   sigma = Z_cov + diag(z_st_var),
+                                   log = TRUE))
+    }else{
+      (like_cur <- mvtnorm::dmvnorm(x = as.numeric(all_exp_dat),
+                                    mean = as.numeric(y_cur_means),
+                                    sigma = block_covs + y_st_cov + cov_extra_phys_cal,
+                                    log = TRUE))
+      (like_st <- mvtnorm::dmvnorm(x = as.numeric(all_exp_dat),
+                                   mean = as.numeric(y_st_means),
+                                   sigma = block_covs + y_cur_cov + cov_extra_phys_cal,
+                                   log = TRUE))
+    }
     #Includes constant prior 
-    ratio <- sum(like_st) - sum(like_cur) #+ sum(log(2*X_st)) - sum(log(2*X_cur))
+    (ratio <- sum(like_st) - sum(like_cur)) #+ sum(log(2*X_st)) - sum(log(2*X_cur))
     
     #Put exponential prior on first input parameter?
     # if(j==1) ratio <- ratio + dexp(tj_st,log = TRUE) - dexp(t_cur[j],log = TRUE)
     
-    if(runif(1) < exp(ratio) & !auto_reject){
+    if(rexp(1) > -ratio & !auto_reject){
       cur_mod <- st_mod
       t_cur <- t_st
       t_ratio <- t_ratio + 1
@@ -325,8 +321,8 @@ mh_cal <- function(niters = 1E4,burnin_prop = 0.3,
 }
 
 
-res <- mh_cal(niters = 1E4,t_kap = 5E-3)#,
-              #proposal_cor_mat = matrix(c(1,-.8,-.8,1),ncol = 2))
+res <- mh_cal(niters = 1E4,t_kap = 1E-2,in_pca_space = TRUE)#,
+#proposal_cor_mat = matrix(c(1,-.8,-.8,1),ncol = 2))
 #save(res,file = paste0(save_path,'res_old.Rdata'))
 
 param_plot <- matrix(0,dim(res$params)[1],dim(res$params)[2])
@@ -336,76 +332,19 @@ for(j in 1:dim(param_plot)[2]){
 }
 #param_plot_sqrt <- sqrt(param_plot)
 
-plot(param_plot[,1],type = 'l', ylab = expression(alpha), xlab = 'Iteration',
-     main = expression(alpha~'Trace Plot'))
-plot(param_plot[,2],type = 'l', ylab = expression(beta), xlab = 'Iteration',
-     main = expression(~beta~'Trace Plot'))
-# plot(param_plot[,3],type = 'l',ylab = 'Gamma')
-# plot(param_plot[,4],type = 'l',ylab = 'Delta')
-# 
-# plot(res$params[,1],type = 'l', ylab = expression(sqrt(Lambda^jet)), xlab = 'Iteration',
-#      main = expression(sqrt(Lambda^jet)~'Trace Plot'))
-# plot(res$params[,2],type = 'l', ylab = expression(sqrt(alpha[s]^med)), xlab = 'Iteration',
-#      main = expression(sqrt(alpha[s]^med)~'Trace Plot'))
-
-#write.table(param_plot,file = paste0(save_path,'post_draws.txt'),
- #           row.names = FALSE)
-
-#Now there are 12 bivariate normal likelihoods, rather than 12 univariate normal likelihoods
-#Everything else is the same
-
-
-panel.hist <- function(x, ...)
-{
-  usr <- par("usr"); on.exit(par(usr))
-  par(usr = c(usr[1:2], 0, 1.5) )
-  h <- hist(x, plot = FALSE)
-  breaks <- h$breaks; nB <- length(breaks)
-  y <- h$counts; y <- y/max(y)
-  rect(breaks[-nB], 0, breaks[-1], y, ...)
-}
-
-panel.image <- function(x,y,...){
-  f1 <- kde2d(x, y, n = 100)
-  image(f1,add = TRUE)
-  #points(x,y, col = rgb(1,0,0,.1))
-}
-
-if(save_pics){ pdf(paste0(save_path,
-                         paste0(systems_to_calibrate,collapse = "_"),
-                         ".pdf"))}
-pairs(param_plot, 
-      panel = panel.image,
-      diag.panel = panel.hist,
-      #pch = 19,
-      #cex = .3,
-      col = rgb(1,0,0,.1),
-      labels = c(expression(alpha),
-                 expression(beta),
-                 expression(gamma),
-                 expression(delta)),
-      upper.panel = NULL,
-      cex.lab = 1.5,
-      cex.axis = 1.3,
-      cex.main = 1.4,
-      mgp = c(2.3,1,0),
-      las = 2,
-      main = hist_main)
-if(save_pics) dev.off()
-
-effectiveSize(param_plot)
-
-
-f1 <- kde2d(param_plot[,1], (param_plot[,2]), n = 100)
+f1 <- kde2d(param_plot[,1], (param_plot[,2]), n = 100,
+            lims = c(ranges[[1]],ranges[[2]]))
 par(mar=c(5.1, 5.1, 4.1, 2.1))
 image(f1,
       xlab = expression(Lambda^jet),
       ylab = "",
-      main = "Heat Map of Posterior Draws",
+      main = paste("Posterior Draws; r =",q),
       cex.lab = 2,
       cex.axis = 1.3,
       cex.main = 1.4,
-      mgp = c(3,1,0)
+      mgp = c(3,1,0)#,
+      # xlim = ranges[[1]],
+      # ylim = ranges[[2]]
 )
 title(ylab = expression(alpha[s]^med), 
       mgp = c(2.1,1,0),
@@ -420,6 +359,73 @@ HPDregionplot(param_plot, prob = perc_lvl,
 legend('topright',paste0(perc_lvl*100,"%"),title = "Highest Density Kernel Estimate",
        lty = c(1,5,3),
        bty="n")
+
+
+
+plot(param_plot[,1],type = 'l', ylab = expression(alpha), xlab = 'Iteration',
+     main = expression(alpha~'Trace Plot'))
+plot(param_plot[,2],type = 'l', ylab = expression(beta), xlab = 'Iteration',
+     main = expression(~beta~'Trace Plot'))
+# plot(param_plot[,3],type = 'l',ylab = 'Gamma')
+# plot(param_plot[,4],type = 'l',ylab = 'Delta')
+# 
+# plot(res$params[,1],type = 'l', ylab = expression(sqrt(Lambda^jet)), xlab = 'Iteration',
+#      main = expression(sqrt(Lambda^jet)~'Trace Plot'))
+# plot(res$params[,2],type = 'l', ylab = expression(sqrt(alpha[s]^med)), xlab = 'Iteration',
+#      main = expression(sqrt(alpha[s]^med)~'Trace Plot'))
+
+#write.table(param_plot,file = paste0(save_path,'post_draws.txt'),
+#           row.names = FALSE)
+
+#Now there are 12 bivariate normal likelihoods, rather than 12 univariate normal likelihoods
+#Everything else is the same
+
+
+panel.hist <- function(x, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5) )
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y/max(y)
+  rect(breaks[-nB], 0, breaks[-1], y,xlim = c(0,0.35),  ...)
+}
+
+panel.image <- function(x,y,...){
+  f1 <- kde2d(x, y, n = 100)
+  image(f1,add = TRUE)
+  #points(x,y, col = rgb(1,0,0,.1))
+}
+
+if(save_pics){ pdf(paste0(save_path,
+                          paste0(systems_to_calibrate,collapse = "_"),
+                          ".pdf"))}
+pairs(param_plot, 
+      panel = panel.image,
+      diag.panel = panel.hist,
+      #pch = 19,
+      #cex = .3,
+      col = rgb(1,0,0,.1),
+      labels = c(expression(Lambda[jet]),
+                 expression(alpha[s])),
+      #expression(alpha),
+      #expression(beta),
+      #expression(gamma),
+      #expression(delta)),
+      upper.panel = NULL,
+      cex.lab = 1.5,
+      cex.axis = 1.3,
+      cex.main = 1.4,
+      mgp = c(2.3,1,0),
+      las = 2,
+      main = hist_main)
+if(save_pics) dev.off()
+
+effectiveSize(param_plot)
+
+
+
+
 
 
 #####
@@ -456,7 +462,7 @@ plot_lines <- function(dat,pT_col = 'pT',exp_col = 'RAA_exp',
   }
   
   points(dat[,pT_col],dat[,exp_col],
-       pch = 19)
+         pch = 19)
   #ylim = c(0,1))
   arrows(dat[,pT_col]-arrow_offset, dat[,exp_col] - 1.96*dat[,err_col_stat],
          dat[,pT_col]-arrow_offset, dat[,exp_col] + 1.96*dat[,err_col_stat],
@@ -513,8 +519,12 @@ plot_draws <- function(draws,
                        alpha_val = 0.01,
                        save_pics = FALSE){
   
+  colnames(draws) <- colnames(scaled_d)
   post_pred_mod <-lapply(train_mod, RobustGaSP::predict,
                          testing_input = draws)
+  
+  # post_pred_mod <-lapply(train_mod, DiceKriging::predict,
+  #                        newdata = draws,type = 'UK')
   
   pred_means <- lapply(post_pred_mod,function(x)x$mean) %>%
     do.call(cbind,.)
@@ -523,8 +533,9 @@ plot_draws <- function(draws,
   Y_pred_scaled <- pred_means %*%t(rot_mat)
   
   #Scale
-  Y_pred <- sweep(Y_pred_scaled,2,apply(scale_mat,2,sd),FUN = "*") %>%
+  Y_pred <- sweep(Y_pred_scaled,2,sd_vec,FUN = "*") %>%
     sweep(2,apply(scale_mat,2,mean),FUN = '+') 
+  #Y_pred <- sweep(Y_pred_scaled,2,apply(scale_mat,2,mean),FUN = '+') 
   
   if(dim(Y_pred)[1]<num_samples){
     stop('Num samples bigger than number of draws')
@@ -537,14 +548,68 @@ plot_draws <- function(draws,
                  save_pics = save_pics)
 }
 
-plot_draws(res$params,title_end = "Posterior",
+plot_draws(res$params,title_end = paste("r = ",q),
            alpha_val = 0.03,
-           rot_mat = 1/sqrt(m-1)*V%*%(S),
+           rot_mat = V,
            save_pics = FALSE)
 plot_draws(matrix(runif(5E3),ncol = dim(design)[2]),title_end = "Prior",
            alpha_val = 0.03,
-           rot_mat = 1/sqrt(m-1)*V%*%(S),
+           rot_mat = V,
            save_pics = FALSE)
+
+
+###########
+##Validation Plot
+##########
+
+holdout = 17
+train_d = scaled_d[-holdout,]
+test_d = scaled_d[holdout,]
+
+train_Y = Y_final[-holdout,]
+test_Y = Y[holdout,]
+
+train_Z = as.matrix(train_Y)%*%V
+test_Z = as.matrix(test_Y)%*%V
+
+train_mod <- lapply(as.data.frame(train_Z),rgasp,design = train_d,nugget = 1E-5)
+test_mod <- lapply(train_mod,RobustGaSP::predict,testing_input = test_d)
+
+pred_Z <- lapply(test_mod,function(x)x$mean) %>%
+  do.call(cbind,.) 
+pred_err_Z <- lapply(test_mod,function(x)x$sd) %>%
+  do.call(cbind,.) %>%
+  as.numeric()%>%
+  diag() 
+
+pred_Y <- pred_Z %*%t(V) %>%
+  sweep(2,sd_vec,FUN = '*') %>%
+  sweep(2,apply(Y,2,mean),FUN = '+')
+
+#This gives negative values
+pred_err_Y <- V%*%pred_err_Z %*%t(V) %>%
+  sweep(2,sd_vec^2,FUN = '*') %>%
+  diag()
+
+#This is what I argue for in Meeting 6/29 IT'S THE SAME!!!!!
+# pred_err_Y2 = diag(pred_err_Z)%*%t(V^2) %>%
+#   sweep(2,apply(Y,2,sd)^2,FUN = '*')
+
+plot(as.numeric(test_Y),as.numeric(pred_Y),pch = 19,cex = .5,
+     xlab = 'Holdout Values',
+     ylab = 'Predicted Values',
+     main = 'Emulator Prediction',
+     cex.lab = 2,
+     cex.axis = 1.3,
+     cex.main = 1.4,
+     mgp = c(2.1,1,0))
+arrows(as.numeric(test_Y), as.numeric(pred_Y) - 2*sqrt(pred_err_Y),
+       as.numeric(test_Y),as.numeric(pred_Y) + 2*sqrt(pred_err_Y),
+       length=0, angle=90, code=3)
+
+abline(a = 0,b = 1)
+
+
 
 
 
